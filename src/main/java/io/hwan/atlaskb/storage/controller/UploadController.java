@@ -2,6 +2,9 @@ package io.hwan.atlaskb.storage.controller;
 
 import io.hwan.atlaskb.common.api.ApiResponse;
 import io.hwan.atlaskb.common.exception.BusinessException;
+import io.hwan.atlaskb.document.entity.FileUpload;
+import io.hwan.atlaskb.document.model.FileProcessingTask;
+import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.document.service.FileTypeValidationService;
 import io.hwan.atlaskb.storage.dto.MergeRequest;
 import io.hwan.atlaskb.storage.model.MergeResult;
@@ -10,6 +13,8 @@ import io.hwan.atlaskb.storage.model.UploadChunkResult;
 import io.hwan.atlaskb.storage.model.UploadStatusResult;
 import io.hwan.atlaskb.storage.service.UploadService;
 import io.hwan.atlaskb.user.service.UserQueryService;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,15 +32,24 @@ public class UploadController {
     private final UploadService uploadService;
     private final UserQueryService userQueryService;
     private final FileTypeValidationService fileTypeValidationService;
+    private final FileUploadRepository fileUploadRepository;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final String fileProcessingTopic;
 
     public UploadController(
             UploadService uploadService,
             UserQueryService userQueryService,
-            FileTypeValidationService fileTypeValidationService
+            FileTypeValidationService fileTypeValidationService,
+            FileUploadRepository fileUploadRepository,
+            KafkaTemplate<String, Object> kafkaTemplate,
+            @Value("${spring.kafka.topic.file-processing}") String fileProcessingTopic
     ) {
         this.uploadService = uploadService;
         this.userQueryService = userQueryService;
         this.fileTypeValidationService = fileTypeValidationService;
+        this.fileUploadRepository = fileUploadRepository;
+        this.kafkaTemplate = kafkaTemplate;
+        this.fileProcessingTopic = fileProcessingTopic;
     }
 
     @PostMapping("/chunk")
@@ -81,6 +95,17 @@ public class UploadController {
             @RequestAttribute("userId") Long userId
     ) {
         String objectUrl = uploadService.mergeChunks(request.fileMd5(), request.fileName(), String.valueOf(userId));
+        FileUpload fileUpload = fileUploadRepository.findByFileMd5AndUserId(request.fileMd5(), String.valueOf(userId))
+                .orElseThrow(() -> new BusinessException(4042, "上传记录不存在"));
+        FileProcessingTask task = new FileProcessingTask(
+                request.fileMd5(),
+                objectUrl,
+                request.fileName(),
+                String.valueOf(userId),
+                fileUpload.getOrgTag(),
+                fileUpload.isPublic()
+        );
+        kafkaTemplate.send(fileProcessingTopic, task);
         return ApiResponse.success(new MergeResult(objectUrl));
     }
 }

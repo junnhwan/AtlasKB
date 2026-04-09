@@ -2,6 +2,8 @@ package io.hwan.atlaskb.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -13,6 +15,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.hwan.atlaskb.auth.service.JwtService;
+import io.hwan.atlaskb.document.entity.FileUpload;
+import io.hwan.atlaskb.document.model.FileProcessingTask;
+import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.storage.dto.MergeRequest;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
@@ -30,6 +35,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -41,6 +47,7 @@ import org.springframework.test.web.servlet.MockMvc;
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa",
         "spring.datasource.password=",
+        "spring.kafka.listener.auto-startup=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
         "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect"
@@ -54,6 +61,9 @@ class UploadControllerTest {
     private UserRepository userRepository;
 
     @Autowired
+    private FileUploadRepository fileUploadRepository;
+
+    @Autowired
     private JwtService jwtService;
 
     @MockBean
@@ -62,12 +72,16 @@ class UploadControllerTest {
     @MockBean
     private UserQueryService userQueryService;
 
+    @MockBean
+    private KafkaTemplate<String, Object> kafkaTemplate;
+
     private String token;
     private Long userId;
 
     @BeforeEach
     void setUp() {
         userRepository.deleteAll();
+        fileUploadRepository.deleteAll();
 
         User user = new User();
         user.setUsername("admin");
@@ -158,6 +172,16 @@ class UploadControllerTest {
 
     @Test
     void mergeChunksReturnsObjectUrl() throws Exception {
+        FileUpload fileUpload = new FileUpload();
+        fileUpload.setFileMd5("abc123");
+        fileUpload.setFileName("manual.pdf");
+        fileUpload.setTotalSize(10L * 1024 * 1024);
+        fileUpload.setStatus(1);
+        fileUpload.setUserId(userId.toString());
+        fileUpload.setOrgTag("default");
+        fileUpload.setPublic(true);
+        fileUploadRepository.save(fileUpload);
+
         when(uploadService.mergeChunks("abc123", "manual.pdf", userId.toString()))
                 .thenReturn("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf");
 
@@ -177,5 +201,15 @@ class UploadControllerTest {
                 .andExpect(jsonPath("$.data.objectUrl").value("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf"));
 
         verify(uploadService).mergeChunks("abc123", "manual.pdf", userId.toString());
+        verify(kafkaTemplate).send(
+                eq("atlas-kb-file-processing"),
+                argThat(payload -> payload instanceof FileProcessingTask task
+                        && "abc123".equals(task.fileMd5())
+                        && "http://localhost:9000/atlas-kb-uploads/merged/manual.pdf".equals(task.objectUrl())
+                        && "manual.pdf".equals(task.fileName())
+                        && userId.toString().equals(task.userId())
+                        && "default".equals(task.orgTag())
+                        && task.publicAccessible())
+        );
     }
 }
