@@ -8,6 +8,7 @@ import io.hwan.atlaskb.document.model.TextChunk;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.document.service.ParseService;
+import io.hwan.atlaskb.search.service.IndexingService;
 import io.hwan.atlaskb.storage.service.StorageObjectReader;
 import java.io.InputStream;
 import java.util.List;
@@ -20,23 +21,27 @@ import org.springframework.stereotype.Service;
 public class FileProcessingConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(FileProcessingConsumer.class);
-    private static final int STATUS_MERGED_PENDING = 1;
+    private static final int STATUS_INDEXED = 2;
+    private static final int STATUS_FAILED = 3;
 
     private final FileUploadRepository fileUploadRepository;
     private final DocumentVectorRepository documentVectorRepository;
     private final ParseService parseService;
     private final StorageObjectReader storageObjectReader;
+    private final IndexingService indexingService;
 
     public FileProcessingConsumer(
             FileUploadRepository fileUploadRepository,
             DocumentVectorRepository documentVectorRepository,
             ParseService parseService,
-            StorageObjectReader storageObjectReader
+            StorageObjectReader storageObjectReader,
+            IndexingService indexingService
     ) {
         this.fileUploadRepository = fileUploadRepository;
         this.documentVectorRepository = documentVectorRepository;
         this.parseService = parseService;
         this.storageObjectReader = storageObjectReader;
+        this.indexingService = indexingService;
     }
 
     @KafkaListener(
@@ -58,6 +63,7 @@ public class FileProcessingConsumer {
 
         try (InputStream inputStream = storageObjectReader.read(task.objectUrl())) {
             List<TextChunk> chunks = parseService.parse(inputStream, task.fileName());
+            documentVectorRepository.deleteByFileMd5AndUserId(task.fileMd5(), task.userId());
             if (!chunks.isEmpty()) {
                 List<DocumentVector> vectors = chunks.stream()
                         .map(chunk -> toDocumentVector(task, chunk))
@@ -65,10 +71,14 @@ public class FileProcessingConsumer {
                 documentVectorRepository.saveAll(vectors);
             }
 
-            fileUpload.setStatus(STATUS_MERGED_PENDING);
+            indexingService.indexFile(task.fileMd5(), task.userId());
+
+            fileUpload.setStatus(STATUS_INDEXED);
             fileUploadRepository.save(fileUpload);
         } catch (Exception exception) {
-            log.error("Failed to parse and persist chunks for fileMd5={}", task.fileMd5(), exception);
+            fileUpload.setStatus(STATUS_FAILED);
+            fileUploadRepository.save(fileUpload);
+            log.error("Failed to process file task for fileMd5={}", task.fileMd5(), exception);
             throw new RuntimeException("Failed to process file task", exception);
         }
     }

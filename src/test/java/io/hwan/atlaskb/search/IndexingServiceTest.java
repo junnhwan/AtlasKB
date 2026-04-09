@@ -39,7 +39,7 @@ class IndexingServiceTest {
         DocumentVector chunkOne = createVector("abc123", 1, "chunk one", "1", "default", true);
         DocumentVector chunkTwo = createVector("abc123", 2, "chunk two", "1", "default", true);
 
-        when(documentVectorRepository.findByFileMd5OrderByChunkIdAsc("abc123"))
+        when(documentVectorRepository.findByFileMd5AndUserIdOrderByChunkIdAsc("abc123", "1"))
                 .thenReturn(List.of(chunkOne, chunkTwo));
         when(embeddingClient.embed(List.of("chunk one", "chunk two")))
                 .thenReturn(List.of(List.of(0.1F, 0.2F), List.of(0.3F, 0.4F)));
@@ -52,9 +52,9 @@ class IndexingServiceTest {
                 "text-embedding-v4"
         );
 
-        indexingService.indexFile("abc123");
+        indexingService.indexFile("abc123", "1");
 
-        verify(documentVectorRepository).findByFileMd5OrderByChunkIdAsc("abc123");
+        verify(documentVectorRepository).findByFileMd5AndUserIdOrderByChunkIdAsc("abc123", "1");
         verify(embeddingClient).embed(List.of("chunk one", "chunk two"));
 
         ArgumentCaptor<IndexRequest<EsDocument>> requestCaptor = ArgumentCaptor.forClass(IndexRequest.class);
@@ -82,7 +82,7 @@ class IndexingServiceTest {
 
     @Test
     void indexFileSkipsEmbeddingWhenNoStoredChunks() throws Exception {
-        when(documentVectorRepository.findByFileMd5OrderByChunkIdAsc("empty-file"))
+        when(documentVectorRepository.findByFileMd5AndUserIdOrderByChunkIdAsc("empty-file", "9"))
                 .thenReturn(List.of());
 
         IndexingService indexingService = new IndexingService(
@@ -93,9 +93,9 @@ class IndexingServiceTest {
                 "text-embedding-v4"
         );
 
-        indexingService.indexFile("empty-file");
+        indexingService.indexFile("empty-file", "9");
 
-        verify(documentVectorRepository).findByFileMd5OrderByChunkIdAsc("empty-file");
+        verify(documentVectorRepository).findByFileMd5AndUserIdOrderByChunkIdAsc("empty-file", "9");
         verify(embeddingClient, never()).embed(any());
         verify(elasticsearchClient, never()).index(any(IndexRequest.class));
     }

@@ -33,8 +33,8 @@ public class IndexingService {
         this.modelVersion = modelVersion;
     }
 
-    public void indexFile(String fileMd5) {
-        List<DocumentVector> chunks = documentVectorRepository.findByFileMd5OrderByChunkIdAsc(fileMd5);
+    public void indexFile(String fileMd5, String userId) {
+        List<DocumentVector> chunks = documentVectorRepository.findByFileMd5AndUserIdOrderByChunkIdAsc(fileMd5, userId);
         if (chunks.isEmpty()) {
             return;
         }
