@@ -10,6 +10,8 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.HitsMetadata;
+import io.hwan.atlaskb.document.entity.FileUpload;
+import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.embedding.client.EmbeddingClient;
 import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.dto.SearchRequest;
@@ -36,6 +38,9 @@ class HybridSearchServiceTest {
     private OrgTagPermissionService orgTagPermissionService;
 
     @Mock
+    private FileUploadRepository fileUploadRepository;
+
+    @Mock
     private SearchResponse<EsDocument> searchResponse;
 
     @Mock
@@ -54,11 +59,13 @@ class HybridSearchServiceTest {
         when(hitsMetadata.hits()).thenReturn(List.of(hit));
         when(hit.score()).thenReturn(0.91D);
         when(hit.source()).thenReturn(createEsDocument());
+        when(fileUploadRepository.findByFileMd5In(List.of("abc123"))).thenReturn(List.of(createFileUpload()));
 
         HybridSearchService searchService = new HybridSearchService(
                 elasticsearchClient,
                 embeddingClient,
                 orgTagPermissionService,
+                fileUploadRepository,
                 "atlas_kb_knowledge_base"
         );
 
@@ -92,6 +99,7 @@ class HybridSearchServiceTest {
         assertEquals("1", results.get(0).getUserId());
         assertEquals("default", results.get(0).getOrgTag());
         assertEquals(true, results.get(0).isPublic());
+        assertEquals("manual.pdf", results.get(0).getFileName());
     }
 
     @Test
@@ -107,6 +115,7 @@ class HybridSearchServiceTest {
                 elasticsearchClient,
                 embeddingClient,
                 orgTagPermissionService,
+                fileUploadRepository,
                 "atlas_kb_knowledge_base"
         );
 
@@ -135,5 +144,15 @@ class HybridSearchServiceTest {
         document.setOrgTag("default");
         document.setPublic(true);
         return document;
+    }
+
+    private FileUpload createFileUpload() {
+        FileUpload fileUpload = new FileUpload();
+        fileUpload.setFileMd5("abc123");
+        fileUpload.setFileName("manual.pdf");
+        fileUpload.setUserId("1");
+        fileUpload.setStatus(2);
+        fileUpload.setTotalSize(1L);
+        return fileUpload;
     }
 }

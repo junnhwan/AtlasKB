@@ -3,6 +3,7 @@ package io.hwan.atlaskb.search.dto;
 public class SearchResult {
 
     private String fileMd5;
+    private String fileName;
     private Integer chunkId;
     private String textContent;
     private Double score;
@@ -24,6 +25,14 @@ public class SearchResult {
 
     public void setChunkId(Integer chunkId) {
         this.chunkId = chunkId;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
     }
 
     public String getTextContent() {

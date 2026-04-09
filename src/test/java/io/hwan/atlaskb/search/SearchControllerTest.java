@@ -76,6 +76,7 @@ class SearchControllerTest {
         result.setUserId("1");
         result.setOrgTag("default");
         result.setPublic(true);
+        result.setFileName("manual.pdf");
 
         when(hybridSearchService.search(org.mockito.ArgumentMatchers.any(), eq("1")))
                 .thenReturn(List.of(result));
@@ -97,7 +98,8 @@ class SearchControllerTest {
                 .andExpect(jsonPath("$.data[0].textContent").value("AtlasKB search result"))
                 .andExpect(jsonPath("$.data[0].score").value(0.91D))
                 .andExpect(jsonPath("$.data[0].orgTag").value("default"))
-                .andExpect(jsonPath("$.data[0].public").value(true));
+                .andExpect(jsonPath("$.data[0].public").value(true))
+                .andExpect(jsonPath("$.data[0].fileName").value("manual.pdf"));
 
         verify(hybridSearchService).search(org.mockito.ArgumentMatchers.any(), eq("1"));
     }

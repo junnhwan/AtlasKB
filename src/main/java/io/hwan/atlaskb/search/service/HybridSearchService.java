@@ -4,6 +4,8 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.KnnQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import io.hwan.atlaskb.document.entity.FileUpload;
+import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.embedding.client.EmbeddingClient;
 import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.dto.SearchRequest;
@@ -11,6 +13,9 @@ import io.hwan.atlaskb.search.dto.SearchResult;
 import io.hwan.atlaskb.search.entity.EsDocument;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -25,17 +30,20 @@ public class HybridSearchService {
     private final ElasticsearchClient elasticsearchClient;
     private final EmbeddingClient embeddingClient;
     private final OrgTagPermissionService orgTagPermissionService;
+    private final FileUploadRepository fileUploadRepository;
     private final String indexName;
 
     public HybridSearchService(
             ElasticsearchClient elasticsearchClient,
             EmbeddingClient embeddingClient,
             OrgTagPermissionService orgTagPermissionService,
+            FileUploadRepository fileUploadRepository,
             @Value("${elasticsearch.index-name}") String indexName
     ) {
         this.elasticsearchClient = elasticsearchClient;
         this.embeddingClient = embeddingClient;
         this.orgTagPermissionService = orgTagPermissionService;
+        this.fileUploadRepository = fileUploadRepository;
         this.indexName = indexName;
     }
 
@@ -53,12 +61,14 @@ public class HybridSearchService {
         );
 
         try {
-            return elasticsearchClient.search(esRequest, EsDocument.class)
+            List<SearchResult> results = elasticsearchClient.search(esRequest, EsDocument.class)
                     .hits()
                     .hits()
                     .stream()
                     .map(this::toSearchResult)
                     .toList();
+            attachFileNames(results);
+            return results;
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to execute hybrid search", exception);
         }
@@ -152,5 +162,25 @@ public class HybridSearchService {
         result.setOrgTag(document.getOrgTag());
         result.setPublic(document.isPublic());
         return result;
+    }
+
+    private void attachFileNames(List<SearchResult> results) {
+        if (results.isEmpty()) {
+            return;
+        }
+
+        Set<String> fileMd5Set = results.stream()
+                .map(SearchResult::getFileMd5)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (fileMd5Set.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> fileNameByMd5 = fileUploadRepository.findByFileMd5In(new ArrayList<>(fileMd5Set))
+                .stream()
+                .collect(Collectors.toMap(FileUpload::getFileMd5, FileUpload::getFileName, (left, right) -> left));
+
+        results.forEach(result -> result.setFileName(fileNameByMd5.get(result.getFileMd5())));
     }
 }
