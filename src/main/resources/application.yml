@@ -31,6 +31,10 @@ spring:
       dlt: atlas-kb-file-processing-dlt
   codec:
     max-in-memory-size: 16MB
+  data:
+    redis:
+      repositories:
+        enabled: false
 
 server:
   port: 8081
