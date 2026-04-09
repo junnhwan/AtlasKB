@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: atlas-kb
+
+server:
+  port: 8081
