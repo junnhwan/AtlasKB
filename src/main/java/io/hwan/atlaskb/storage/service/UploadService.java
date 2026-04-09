@@ -4,8 +4,10 @@ import io.hwan.atlaskb.document.entity.ChunkInfo;
 import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
+import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
+import io.hwan.atlaskb.storage.model.UploadStatusResult;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import java.io.IOException;
@@ -112,6 +114,25 @@ public class UploadService {
         return new UploadChunkResult(uploadedChunks, progress);
     }
 
+    @Transactional(readOnly = true)
+    public UploadStatusResult getUploadStatus(String fileMd5, String userId) {
+        FileUpload fileUpload = fileUploadRepository.findByFileMd5AndUserId(fileMd5, userId)
+                .orElseThrow(() -> new BusinessException(4042, "上传记录不存在"));
+        List<Integer> uploadedChunks = chunkInfoRepository.findByFileMd5OrderByChunkIndexAsc(fileMd5)
+                .stream()
+                .map(ChunkInfo::getChunkIndex)
+                .toList();
+        int totalChunks = calculateTotalChunks(fileUpload.getTotalSize());
+        double progress = totalChunks == 0 ? 0.0d : uploadedChunks.size() * 100.0d / totalChunks;
+
+        return new UploadStatusResult(
+                uploadedChunks,
+                progress,
+                fileUpload.getFileName(),
+                resolveFileType(fileUpload.getFileName())
+        );
+    }
+
     private int calculateTotalChunks(long totalSize) {
         return (int) Math.ceil(totalSize * 1.0d / DEFAULT_CHUNK_SIZE);
     }
@@ -122,5 +143,13 @@ public class UploadService {
 
     private String buildRedisKey(String userId, String fileMd5) {
         return "upload:" + userId + ":" + fileMd5;
+    }
+
+    private String resolveFileType(String fileName) {
+        int lastDotIndex = fileName.lastIndexOf('.');
+        if (lastDotIndex < 0 || lastDotIndex == fileName.length() - 1) {
+            return "unknown";
+        }
+        return fileName.substring(lastDotIndex + 1).toLowerCase();
     }
 }

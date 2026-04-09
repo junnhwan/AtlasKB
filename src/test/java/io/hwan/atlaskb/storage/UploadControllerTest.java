@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.hwan.atlaskb.auth.service.JwtService;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
+import io.hwan.atlaskb.storage.model.UploadStatusResult;
 import io.hwan.atlaskb.storage.service.UploadService;
 import io.hwan.atlaskb.user.entity.User;
 import io.hwan.atlaskb.user.repository.UserRepository;
@@ -29,7 +31,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.multipart.MultipartFile;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -132,5 +133,24 @@ class UploadControllerTest {
         assertEquals("AtlasKB".length(), command.file().getSize());
 
         verify(userQueryService).getPrimaryOrg(userId);
+    }
+
+    @Test
+    void getUploadStatusReturnsProgressAndFileMetadata() throws Exception {
+        when(uploadService.getUploadStatus("abc123", userId.toString()))
+                .thenReturn(new UploadStatusResult(List.of(0), 50.0d, "manual.pdf", "pdf"));
+
+        mockMvc.perform(get("/api/v1/upload/status")
+                        .param("file_md5", "abc123")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.uploaded[0]").value(0))
+                .andExpect(jsonPath("$.data.progress").value(50.0d))
+                .andExpect(jsonPath("$.data.fileName").value("manual.pdf"))
+                .andExpect(jsonPath("$.data.fileType").value("pdf"));
+
+        verify(uploadService).getUploadStatus("abc123", userId.toString());
     }
 }

@@ -5,9 +5,11 @@ import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.document.service.FileTypeValidationService;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
+import io.hwan.atlaskb.storage.model.UploadStatusResult;
 import io.hwan.atlaskb.storage.service.UploadService;
 import io.hwan.atlaskb.user.service.UserQueryService;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -60,5 +62,13 @@ public class UploadController {
                 String.valueOf(userId)
         );
         return ApiResponse.success(uploadService.uploadChunk(command));
+    }
+
+    @GetMapping("/status")
+    public ApiResponse<UploadStatusResult> getUploadStatus(
+            @RequestParam("file_md5") String fileMd5,
+            @RequestAttribute("userId") Long userId
+    ) {
+        return ApiResponse.success(uploadService.getUploadStatus(fileMd5, String.valueOf(userId)));
     }
 }

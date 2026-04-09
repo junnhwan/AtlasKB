@@ -13,6 +13,7 @@ import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
+import io.hwan.atlaskb.storage.model.UploadStatusResult;
 import io.hwan.atlaskb.storage.service.UploadService;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -49,7 +50,6 @@ class UploadServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         uploadService = new UploadService(
                 minioClient,
                 stringRedisTemplate,
@@ -61,6 +61,8 @@ class UploadServiceTest {
 
     @Test
     void uploadChunkCreatesMetadataStoresObjectAndReturnsProgress() throws Exception {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "manual.pdf",
@@ -110,5 +112,30 @@ class UploadServiceTest {
         ));
         assertIterableEquals(List.of(0), result.uploaded());
         assertEquals(50.0d, result.progress());
+    }
+
+    @Test
+    void getUploadStatusReadsMetadataAndCalculatesProgress() {
+        FileUpload fileUpload = new FileUpload();
+        fileUpload.setFileMd5("abc123");
+        fileUpload.setFileName("manual.pdf");
+        fileUpload.setTotalSize(10L * 1024 * 1024);
+        fileUpload.setUserId("1");
+
+        ChunkInfo chunkInfo = new ChunkInfo();
+        chunkInfo.setFileMd5("abc123");
+        chunkInfo.setChunkIndex(0);
+        chunkInfo.setChunkMd5("chunk-md5");
+        chunkInfo.setStoragePath("chunks/abc123/0");
+
+        when(fileUploadRepository.findByFileMd5AndUserId("abc123", "1")).thenReturn(Optional.of(fileUpload));
+        when(chunkInfoRepository.findByFileMd5OrderByChunkIndexAsc("abc123")).thenReturn(List.of(chunkInfo));
+
+        UploadStatusResult result = uploadService.getUploadStatus("abc123", "1");
+
+        assertIterableEquals(List.of(0), result.uploaded());
+        assertEquals(50.0d, result.progress());
+        assertEquals("manual.pdf", result.fileName());
+        assertEquals("pdf", result.fileType());
     }
 }
