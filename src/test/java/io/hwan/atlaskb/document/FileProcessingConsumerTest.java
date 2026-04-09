@@ -3,13 +3,23 @@ package io.hwan.atlaskb.document;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.hwan.atlaskb.document.consumer.FileProcessingConsumer;
+import io.hwan.atlaskb.document.entity.DocumentVector;
 import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.model.FileProcessingTask;
+import io.hwan.atlaskb.document.model.TextChunk;
+import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
+import io.hwan.atlaskb.document.service.ParseService;
+import io.hwan.atlaskb.storage.service.StorageObjectReader;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,11 +34,20 @@ class FileProcessingConsumerTest {
     @Mock
     private FileUploadRepository fileUploadRepository;
 
+    @Mock
+    private DocumentVectorRepository documentVectorRepository;
+
+    @Mock
+    private ParseService parseService;
+
+    @Mock
+    private StorageObjectReader storageObjectReader;
+
     @InjectMocks
     private FileProcessingConsumer fileProcessingConsumer;
 
     @Test
-    void processTaskKeepsFileInPendingProcessingStatus() {
+    void processTaskKeepsFileInPendingProcessingStatusAndPersistsChunks() throws Exception {
         FileUpload fileUpload = new FileUpload();
         fileUpload.setFileMd5("abc123");
         fileUpload.setFileName("manual.pdf");
@@ -44,7 +63,14 @@ class FileProcessingConsumerTest {
                 true
         );
 
+        InputStream inputStream = new ByteArrayInputStream("AtlasKB".getBytes(StandardCharsets.UTF_8));
         when(fileUploadRepository.findByFileMd5AndUserId("abc123", "1")).thenReturn(Optional.of(fileUpload));
+        when(storageObjectReader.read("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf")).thenReturn(inputStream);
+        when(parseService.parse(any(InputStream.class), eq("manual.pdf"))).thenReturn(List.of(
+                new TextChunk(1, "chunk one"),
+                new TextChunk(2, "chunk two")
+        ));
+        when(documentVectorRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(fileUploadRepository.save(any(FileUpload.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         fileProcessingConsumer.processTask(task);
@@ -52,6 +78,19 @@ class FileProcessingConsumerTest {
         ArgumentCaptor<FileUpload> fileCaptor = ArgumentCaptor.forClass(FileUpload.class);
         verify(fileUploadRepository).save(fileCaptor.capture());
         assertEquals(1, fileCaptor.getValue().getStatus());
+        verify(storageObjectReader).read("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf");
+        verify(parseService).parse(any(InputStream.class), eq("manual.pdf"));
+
+        ArgumentCaptor<Iterable<DocumentVector>> vectorCaptor = ArgumentCaptor.forClass(Iterable.class);
+        verify(documentVectorRepository).saveAll(vectorCaptor.capture());
+        List<DocumentVector> savedVectors = (List<DocumentVector>) vectorCaptor.getValue();
+        assertEquals(2, savedVectors.size());
+        assertEquals("abc123", savedVectors.get(0).getFileMd5());
+        assertEquals(1, savedVectors.get(0).getChunkId());
+        assertEquals("chunk one", savedVectors.get(0).getTextContent());
+        assertEquals("1", savedVectors.get(0).getUserId());
+        assertEquals("default", savedVectors.get(0).getOrgTag());
+        assertEquals(true, savedVectors.get(0).isPublic());
     }
 
     @Test
