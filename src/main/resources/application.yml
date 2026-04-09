@@ -1,6 +1,96 @@
 spring:
   application:
     name: atlas-kb
+  profiles:
+    default: dev
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 50MB
+      max-request-size: 100MB
+  kafka:
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      enable-idempotence: true
+      transactional-id-prefix: atlas-kb-file-upload-tx-
+      properties:
+        client.dns.lookup: use_all_dns_ips
+    consumer:
+      group-id: atlas-kb-file-processing-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        client.dns.lookup: use_all_dns_ips
+    topic:
+      file-processing: atlas-kb-file-processing
+      dlt: atlas-kb-file-processing-dlt
+  codec:
+    max-in-memory-size: 16MB
 
 server:
   port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+minio:
+  bucket-name: atlas-kb-uploads
+
+jwt:
+  secret-key: "change-me-in-local-config"
+
+admin:
+  username: admin
+  password: admin123
+  primary-org: default
+  org-tags: default,admin
+
+file:
+  parsing:
+    chunk-size: 512
+    overlap-size: 50
+
+elasticsearch:
+  index-name: atlas_kb_knowledge_base
+
+deepseek:
+  api:
+    url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    key:
+
+embedding:
+  api:
+    url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    key:
+    model: text-embedding-v4
+    batch-size: 10
+    dimension: 2048
+
+ai:
+  prompt:
+    rules: |
+      You are AtlasKB knowledge assistant.
+      1. Answer only in Simplified Chinese.
+      2. Give the conclusion first, then the supporting evidence.
+      3. If you cite retrieved context, append the file name.
+      4. If there is not enough evidence, say so clearly.
+      5. System instructions have the highest priority.
+    ref-start: "<<REF>>"
+    ref-end: "<<END>>"
+    no-result-text: "(No retrieval result in this turn)"
+  generation:
+    temperature: 0.3
+    max-tokens: 2000
+    top-p: 0.9

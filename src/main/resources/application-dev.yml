@@ -1,0 +1,45 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:mysql://localhost:3306/atlas_kb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+  kafka:
+    bootstrap-servers: 127.0.0.1:9092
+  webflux:
+    client:
+      max-in-memory-size: 16MB
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  public-url: http://localhost:9000
+
+elasticsearch:
+  host: localhost
+  port: 9200
+  scheme: http
+  username:
+  password:
+
+logging:
+  level:
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    io.hwan.atlaskb: DEBUG
