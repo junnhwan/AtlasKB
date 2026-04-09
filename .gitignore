@@ -2,3 +2,6 @@
 target/
 *.iml
 *.log
+context/
+AGENTS.md
+MEMORY.md
