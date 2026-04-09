@@ -15,8 +15,10 @@ import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
 import io.hwan.atlaskb.storage.model.UploadStatusResult;
 import io.hwan.atlaskb.storage.service.UploadService;
+import io.minio.ComposeObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +57,8 @@ class UploadServiceTest {
                 stringRedisTemplate,
                 fileUploadRepository,
                 chunkInfoRepository,
-                "atlas-kb-uploads"
+                "atlas-kb-uploads",
+                "http://localhost:9000"
         );
     }
 
@@ -137,5 +140,40 @@ class UploadServiceTest {
         assertEquals(50.0d, result.progress());
         assertEquals("manual.pdf", result.fileName());
         assertEquals("pdf", result.fileType());
+    }
+
+    @Test
+    void mergeChunksComposesObjectUpdatesStatusAndReturnsObjectUrl() throws Exception {
+        FileUpload fileUpload = new FileUpload();
+        fileUpload.setFileMd5("abc123");
+        fileUpload.setFileName("manual.pdf");
+        fileUpload.setTotalSize(10L * 1024 * 1024);
+        fileUpload.setUserId("1");
+        fileUpload.setStatus(0);
+
+        ChunkInfo firstChunk = new ChunkInfo();
+        firstChunk.setFileMd5("abc123");
+        firstChunk.setChunkIndex(0);
+        firstChunk.setStoragePath("chunks/abc123/0");
+
+        ChunkInfo secondChunk = new ChunkInfo();
+        secondChunk.setFileMd5("abc123");
+        secondChunk.setChunkIndex(1);
+        secondChunk.setStoragePath("chunks/abc123/1");
+
+        when(fileUploadRepository.findByFileMd5AndUserId("abc123", "1")).thenReturn(Optional.of(fileUpload));
+        when(fileUploadRepository.save(any(FileUpload.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chunkInfoRepository.findByFileMd5OrderByChunkIndexAsc("abc123"))
+                .thenReturn(List.of(firstChunk, secondChunk));
+
+        String objectUrl = uploadService.mergeChunks("abc123", "manual.pdf", "1");
+
+        verify(minioClient).composeObject(any(ComposeObjectArgs.class));
+        verify(stringRedisTemplate).delete("upload:1:abc123");
+        verify(fileUploadRepository).save(argThat(savedFile ->
+                savedFile.getStatus() == 1
+                        && savedFile.getMergedAt() != null
+        ));
+        assertEquals("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf", objectUrl);
     }
 }

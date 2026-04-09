@@ -6,12 +6,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.hwan.atlaskb.auth.service.JwtService;
+import io.hwan.atlaskb.storage.dto.MergeRequest;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
 import io.hwan.atlaskb.storage.model.UploadStatusResult;
@@ -152,5 +154,28 @@ class UploadControllerTest {
                 .andExpect(jsonPath("$.data.fileType").value("pdf"));
 
         verify(uploadService).getUploadStatus("abc123", userId.toString());
+    }
+
+    @Test
+    void mergeChunksReturnsObjectUrl() throws Exception {
+        when(uploadService.mergeChunks("abc123", "manual.pdf", userId.toString()))
+                .thenReturn("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf");
+
+        mockMvc.perform(post("/api/v1/upload/merge")
+                        .with(csrf())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fileMd5": "abc123",
+                                  "fileName": "manual.pdf"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.objectUrl").value("http://localhost:9000/atlas-kb-uploads/merged/manual.pdf"));
+
+        verify(uploadService).mergeChunks("abc123", "manual.pdf", userId.toString());
     }
 }

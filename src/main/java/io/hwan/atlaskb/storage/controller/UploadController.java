@@ -3,6 +3,8 @@ package io.hwan.atlaskb.storage.controller;
 import io.hwan.atlaskb.common.api.ApiResponse;
 import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.document.service.FileTypeValidationService;
+import io.hwan.atlaskb.storage.dto.MergeRequest;
+import io.hwan.atlaskb.storage.model.MergeResult;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
 import io.hwan.atlaskb.storage.model.UploadStatusResult;
@@ -12,6 +14,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -70,5 +73,14 @@ public class UploadController {
             @RequestAttribute("userId") Long userId
     ) {
         return ApiResponse.success(uploadService.getUploadStatus(fileMd5, String.valueOf(userId)));
+    }
+
+    @PostMapping("/merge")
+    public ApiResponse<MergeResult> mergeChunks(
+            @RequestBody MergeRequest request,
+            @RequestAttribute("userId") Long userId
+    ) {
+        String objectUrl = uploadService.mergeChunks(request.fileMd5(), request.fileName(), String.valueOf(userId));
+        return ApiResponse.success(new MergeResult(objectUrl));
     }
 }

@@ -8,9 +8,13 @@ import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.storage.model.UploadChunkCommand;
 import io.hwan.atlaskb.storage.model.UploadChunkResult;
 import io.hwan.atlaskb.storage.model.UploadStatusResult;
+import io.minio.ComposeObjectArgs;
+import io.minio.ComposeSource;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -29,19 +33,22 @@ public class UploadService {
     private final FileUploadRepository fileUploadRepository;
     private final ChunkInfoRepository chunkInfoRepository;
     private final String bucketName;
+    private final String publicUrl;
 
     public UploadService(
             MinioClient minioClient,
             StringRedisTemplate stringRedisTemplate,
             FileUploadRepository fileUploadRepository,
             ChunkInfoRepository chunkInfoRepository,
-            @Value("${minio.bucket-name}") String bucketName
+            @Value("${minio.bucket-name}") String bucketName,
+            @Value("${minio.public-url}") String publicUrl
     ) {
         this.minioClient = minioClient;
         this.stringRedisTemplate = stringRedisTemplate;
         this.fileUploadRepository = fileUploadRepository;
         this.chunkInfoRepository = chunkInfoRepository;
         this.bucketName = bucketName;
+        this.publicUrl = publicUrl;
     }
 
     @Transactional
@@ -133,6 +140,53 @@ public class UploadService {
         );
     }
 
+    @Transactional
+    public String mergeChunks(String fileMd5, String fileName, String userId) {
+        FileUpload fileUpload = fileUploadRepository.findByFileMd5AndUserId(fileMd5, userId)
+                .orElseThrow(() -> new BusinessException(4042, "上传记录不存在"));
+        List<ChunkInfo> chunks = chunkInfoRepository.findByFileMd5OrderByChunkIndexAsc(fileMd5);
+        int expectedChunks = calculateTotalChunks(fileUpload.getTotalSize());
+        if (chunks.size() != expectedChunks) {
+            throw new BusinessException(4003, "文件分片未上传完成");
+        }
+
+        String mergedPath = "merged/" + fileName;
+        List<ComposeSource> sources = chunks.stream()
+                .map(chunkInfo -> ComposeSource.builder()
+                        .bucket(bucketName)
+                        .object(chunkInfo.getStoragePath())
+                        .build())
+                .toList();
+
+        try {
+            minioClient.composeObject(
+                    ComposeObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(mergedPath)
+                            .sources(sources)
+                            .build()
+            );
+
+            for (ChunkInfo chunk : chunks) {
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder()
+                                .bucket(bucketName)
+                                .object(chunk.getStoragePath())
+                                .build()
+                );
+            }
+        } catch (Exception exception) {
+            throw new RuntimeException("Failed to merge chunks", exception);
+        }
+
+        stringRedisTemplate.delete(buildRedisKey(userId, fileMd5));
+        fileUpload.setStatus(1);
+        fileUpload.setMergedAt(LocalDateTime.now());
+        fileUploadRepository.save(fileUpload);
+
+        return buildObjectUrl(mergedPath);
+    }
+
     private int calculateTotalChunks(long totalSize) {
         return (int) Math.ceil(totalSize * 1.0d / DEFAULT_CHUNK_SIZE);
     }
@@ -151,5 +205,10 @@ public class UploadService {
             return "unknown";
         }
         return fileName.substring(lastDotIndex + 1).toLowerCase();
+    }
+
+    private String buildObjectUrl(String mergedPath) {
+        String normalizedPublicUrl = publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl;
+        return normalizedPublicUrl + "/" + bucketName + "/" + mergedPath;
     }
 }
