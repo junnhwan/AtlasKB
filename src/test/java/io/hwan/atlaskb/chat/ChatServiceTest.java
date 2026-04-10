@@ -228,4 +228,41 @@ class ChatServiceTest {
         verify(listOperations, never()).rightPushAll(any(), any(), any());
         verify(listOperations, never()).trim(anyString(), anyLong(), anyLong());
     }
+
+    @Test
+    void handleMessageUsesRequestedConversationWhenConversationBelongsToUser() throws Exception {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOperations);
+        when(stringRedisTemplate.opsForList()).thenReturn(listOperations);
+        when(setOperations.isMember("user:4:conversations", "conv-4")).thenReturn(true);
+        when(listOperations.range("conversation:conv-4:messages", 0, -1)).thenReturn(List.of(
+                objectMapper.writeValueAsString(Map.of("role", "user", "content", "上一轮问题")),
+                objectMapper.writeValueAsString(Map.of("role", "assistant", "content", "上一轮答案"))
+        ));
+        when(webSocketSession.getId()).thenReturn("session-4");
+        when(hybridSearchService.search(any(SearchRequest.class), eq("4"))).thenReturn(List.of());
+
+        doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(4)).run();
+            return null;
+        }).when(deepSeekClient).streamResponse(eq("继续这个会话"), any(), any(), any(), any(), any());
+
+        ChatService chatService = new ChatService(
+                stringRedisTemplate,
+                hybridSearchService,
+                deepSeekClient,
+                objectMapper
+        );
+
+        chatService.handleMessage("4", "owner", "USER", "conv-4", "继续这个会话", webSocketSession);
+
+        verify(valueOperations).set("user:4:current_conversation", "conv-4", Duration.ofDays(7));
+        verify(setOperations, never()).add(eq("user:4:conversations"), any());
+
+        ArgumentCaptor<List<Map<String, String>>> historyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(deepSeekClient).streamResponse(eq("继续这个会话"), eq(""), historyCaptor.capture(), any(), any(), any());
+        assertEquals(2, historyCaptor.getValue().size());
+        assertEquals("上一轮问题", historyCaptor.getValue().get(0).get("content"));
+        assertEquals("上一轮答案", historyCaptor.getValue().get(1).get("content"));
+    }
 }

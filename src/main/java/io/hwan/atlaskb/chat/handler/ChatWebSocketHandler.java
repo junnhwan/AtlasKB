@@ -52,6 +52,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         SessionUser sessionUser = resolveSessionUser(session);
         String payload = message.getPayload();
+        String conversationId = null;
         if (payload.trim().startsWith("{")) {
             try {
                 Map<String, Object> jsonMessage = objectMapper.readValue(payload, Map.class);
@@ -61,6 +62,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     return;
                 }
                 if ("message".equals(type)) {
+                    Object conversationIdValue = jsonMessage.get("conversationId");
+                    if (conversationIdValue instanceof String conversationIdText && StringUtils.hasText(conversationIdText)) {
+                        conversationId = conversationIdText;
+                    }
                     Object content = jsonMessage.get("content");
                     if (content instanceof String contentText && StringUtils.hasText(contentText)) {
                         payload = contentText;
@@ -75,6 +80,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 sessionUser.userId(),
                 sessionUser.username(),
                 sessionUser.role(),
+                conversationId,
                 payload,
                 session
         );

@@ -77,6 +77,7 @@ class ChatWebSocketHandlerIntegrationTest {
                 eq("1"),
                 eq("admin"),
                 eq("ADMIN"),
+                eq((String) null),
                 eq("你好，帮我总结一下"),
                 any()
         );

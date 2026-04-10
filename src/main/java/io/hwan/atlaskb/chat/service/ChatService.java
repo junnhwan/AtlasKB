@@ -74,9 +74,20 @@ public class ChatService {
             String message,
             WebSocketSession session
     ) {
+        handleMessage(userId, username, role, null, message, session);
+    }
+
+    public void handleMessage(
+            String userId,
+            String username,
+            String role,
+            String requestedConversationId,
+            String message,
+            WebSocketSession session
+    ) {
         try {
             stopFlags.remove(session.getId());
-            String conversationId = getOrCreateConversationId(userId);
+            String conversationId = getOrCreateConversationId(userId, requestedConversationId);
             List<Map<String, String>> history = getConversationHistory(conversationId);
             List<SearchResult> searchResults = hybridSearchService.search(new SearchRequest(message, DEFAULT_TOP_K), userId);
             String context = buildContext(searchResults);
@@ -130,9 +141,16 @@ public class ChatService {
         sendStop(session);
     }
 
-    private String getOrCreateConversationId(String userId) {
+    private String getOrCreateConversationId(String userId, String requestedConversationId) {
         String currentConversationKey = buildCurrentConversationKey(userId);
         String conversationSetKey = buildConversationSetKey(userId);
+
+        if (requestedConversationId != null
+                && !requestedConversationId.isBlank()
+                && Boolean.TRUE.equals(stringRedisTemplate.opsForSet().isMember(conversationSetKey, requestedConversationId))) {
+            stringRedisTemplate.opsForValue().set(currentConversationKey, requestedConversationId, CURRENT_CONVERSATION_TTL);
+            return requestedConversationId;
+        }
 
         String currentConversationId = stringRedisTemplate.opsForValue().get(currentConversationKey);
         if (currentConversationId != null

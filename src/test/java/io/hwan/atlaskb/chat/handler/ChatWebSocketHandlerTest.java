@@ -3,6 +3,7 @@ package io.hwan.atlaskb.chat.handler;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 
 import io.hwan.atlaskb.auth.service.JwtService;
 import io.hwan.atlaskb.chat.service.ChatService;
@@ -45,5 +46,31 @@ class ChatWebSocketHandlerTest {
         verify(chatService).stopResponse("1", webSocketSession);
         verify(chatService, never()).handleMessage(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void handleTextMessageDispatchesConversationMessageInstruction() throws Exception {
+        when(webSocketSession.getAttributes()).thenReturn(new HashMap<>() {
+            {
+                put(ChatWebSocketHandler.ATTR_USER_ID, "1");
+                put(ChatWebSocketHandler.ATTR_USERNAME, "admin");
+                put(ChatWebSocketHandler.ATTR_ROLE, "ADMIN");
+            }
+        });
+
+        ChatWebSocketHandler handler = new ChatWebSocketHandler(chatService, jwtService);
+
+        handler.handleTextMessage(webSocketSession, new TextMessage("""
+                {"type":"message","conversationId":"conv-9","content":"继续聊这个会话"}
+                """));
+
+        verify(chatService).handleMessage(
+                eq("1"),
+                eq("admin"),
+                eq("ADMIN"),
+                eq("conv-9"),
+                eq("继续聊这个会话"),
+                eq(webSocketSession)
+        );
     }
 }
