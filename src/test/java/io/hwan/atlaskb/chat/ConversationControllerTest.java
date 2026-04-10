@@ -8,7 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.hwan.atlaskb.auth.service.JwtService;
 import io.hwan.atlaskb.chat.dto.ConversationMessage;
+import io.hwan.atlaskb.chat.dto.ConversationSelectionResult;
 import io.hwan.atlaskb.chat.service.ConversationQueryService;
+import io.hwan.atlaskb.chat.service.ConversationSessionService;
 import io.hwan.atlaskb.user.entity.User;
 import io.hwan.atlaskb.user.repository.UserRepository;
 import java.util.List;
@@ -21,6 +23,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import org.springframework.http.MediaType;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,6 +51,9 @@ class ConversationControllerTest {
 
     @MockBean
     private ConversationQueryService conversationQueryService;
+
+    @MockBean
+    private ConversationSessionService conversationSessionService;
 
     private String token;
     private Long userId;
@@ -116,5 +123,26 @@ class ConversationControllerTest {
                 .andExpect(jsonPath("$.data[1].createdAt").value("2026-04-10T12:10:00"));
 
         verify(conversationQueryService).getConversationSessions(userId.toString());
+    }
+
+    @Test
+    void selectConversationSessionReturnsSelectedConversationId() throws Exception {
+        when(conversationSessionService.selectConversation(userId.toString(), "conv-2"))
+                .thenReturn(new ConversationSelectionResult("conv-2"));
+
+        mockMvc.perform(post("/api/v1/users/conversation/session/select")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "conversationId": "conv-2"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.conversationId").value("conv-2"));
+
+        verify(conversationSessionService).selectConversation(userId.toString(), "conv-2");
     }
 }
