@@ -113,9 +113,16 @@ class ChatServiceTest {
         ArgumentCaptor<TextMessage> outgoingCaptor = ArgumentCaptor.forClass(TextMessage.class);
         verify(webSocketSession, org.mockito.Mockito.times(3)).sendMessage(outgoingCaptor.capture());
         List<TextMessage> sentMessages = outgoingCaptor.getAllValues();
+        assertTrue(sentMessages.get(0).getPayload().contains("\"type\":\"chunk\""));
         assertTrue(sentMessages.get(0).getPayload().contains("\"chunk\":\"先给结论\""));
+        assertTrue(sentMessages.get(0).getPayload().contains("\"message\":\"先给结论\""));
+        assertTrue(sentMessages.get(0).getPayload().contains("\"timestamp\":"));
+        assertTrue(sentMessages.get(1).getPayload().contains("\"type\":\"chunk\""));
         assertTrue(sentMessages.get(1).getPayload().contains("\"chunk\":\"，再给论据\""));
         assertTrue(sentMessages.get(2).getPayload().contains("\"type\":\"completion\""));
+        assertTrue(sentMessages.get(2).getPayload().contains("\"status\":\"finished\""));
+        assertTrue(sentMessages.get(2).getPayload().contains("响应已完成"));
+        assertTrue(sentMessages.get(2).getPayload().contains("\"timestamp\":"));
 
         ArgumentCaptor<String> persistedKeyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> userJsonCaptor = ArgumentCaptor.forClass(String.class);
@@ -176,7 +183,9 @@ class ChatServiceTest {
 
         ArgumentCaptor<TextMessage> outgoingCaptor = ArgumentCaptor.forClass(TextMessage.class);
         verify(webSocketSession).sendMessage(outgoingCaptor.capture());
+        assertTrue(outgoingCaptor.getValue().getPayload().contains("\"type\":\"error\""));
         assertTrue(outgoingCaptor.getValue().getPayload().contains("AI服务暂时不可用"));
+        assertTrue(outgoingCaptor.getValue().getPayload().contains("\"timestamp\":"));
         verify(listOperations, never()).rightPushAll(eq("conversation:conv-2:messages"), any(), any());
     }
 
@@ -210,9 +219,12 @@ class ChatServiceTest {
         ArgumentCaptor<TextMessage> outgoingCaptor = ArgumentCaptor.forClass(TextMessage.class);
         verify(webSocketSession, org.mockito.Mockito.times(2)).sendMessage(outgoingCaptor.capture());
         List<TextMessage> sentMessages = outgoingCaptor.getAllValues();
+        assertTrue(sentMessages.get(0).getPayload().contains("\"type\":\"chunk\""));
         assertTrue(sentMessages.get(0).getPayload().contains("\"chunk\":\"第一段\""));
         assertTrue(sentMessages.get(1).getPayload().contains("\"type\":\"stop\""));
+        assertTrue(sentMessages.get(1).getPayload().contains("\"status\":\"stopped\""));
         assertTrue(sentMessages.get(1).getPayload().contains("响应已停止"));
+        assertTrue(sentMessages.get(1).getPayload().contains("\"timestamp\":"));
         verify(listOperations, never()).rightPushAll(any(), any(), any());
         verify(listOperations, never()).trim(anyString(), anyLong(), anyLong());
     }

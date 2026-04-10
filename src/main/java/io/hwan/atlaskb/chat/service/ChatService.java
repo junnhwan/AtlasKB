@@ -3,6 +3,7 @@ package io.hwan.atlaskb.chat.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.hwan.atlaskb.chat.client.DeepSeekClient;
+import io.hwan.atlaskb.chat.support.ChatEventFactory;
 import io.hwan.atlaskb.search.dto.SearchRequest;
 import io.hwan.atlaskb.search.dto.SearchResult;
 import io.hwan.atlaskb.search.service.HybridSearchService;
@@ -17,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -39,17 +41,30 @@ public class ChatService {
     private final DeepSeekClient deepSeekClient;
     private final ObjectMapper objectMapper;
     private final Map<String, Boolean> stopFlags = new ConcurrentHashMap<>();
+    private final ChatEventFactory chatEventFactory;
 
+    @Autowired
     public ChatService(
             StringRedisTemplate stringRedisTemplate,
             HybridSearchService hybridSearchService,
             DeepSeekClient deepSeekClient,
             ObjectMapper objectMapper
     ) {
+        this(stringRedisTemplate, hybridSearchService, deepSeekClient, objectMapper, new ChatEventFactory());
+    }
+
+    private ChatService(
+            StringRedisTemplate stringRedisTemplate,
+            HybridSearchService hybridSearchService,
+            DeepSeekClient deepSeekClient,
+            ObjectMapper objectMapper,
+            ChatEventFactory chatEventFactory
+    ) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.hybridSearchService = hybridSearchService;
         this.deepSeekClient = deepSeekClient;
         this.objectMapper = objectMapper;
+        this.chatEventFactory = chatEventFactory;
     }
 
     public void handleMessage(
@@ -202,7 +217,7 @@ public class ChatService {
 
     private void sendChunk(WebSocketSession session, String chunk) {
         try {
-            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of("chunk", chunk))));
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(chatEventFactory.chunk(chunk))));
         } catch (Exception exception) {
             log.error("Send chunk failed: sessionId={}", session.getId(), exception);
         }
@@ -210,10 +225,7 @@ public class ChatService {
 
     private void sendCompletion(WebSocketSession session) {
         try {
-            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
-                    "type", "completion",
-                    "status", "finished"
-            ))));
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(chatEventFactory.completion())));
         } catch (Exception exception) {
             log.error("Send completion failed: sessionId={}", session.getId(), exception);
         }
@@ -221,11 +233,7 @@ public class ChatService {
 
     private void sendStop(WebSocketSession session) {
         try {
-            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
-                    "type", "stop",
-                    "status", "stopped",
-                    "message", "响应已停止"
-            ))));
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(chatEventFactory.stop())));
         } catch (Exception exception) {
             log.error("Send stop failed: sessionId={}", session.getId(), exception);
         }
@@ -233,9 +241,9 @@ public class ChatService {
 
     private void sendError(WebSocketSession session) {
         try {
-            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
-                    "error", "AI服务暂时不可用，请稍后重试"
-            ))));
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(
+                    chatEventFactory.error("AI服务暂时不可用，请稍后重试")
+            )));
         } catch (Exception exception) {
             log.error("Send error failed: sessionId={}", session.getId(), exception);
         }
