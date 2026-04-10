@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -37,6 +38,7 @@ public class ChatService {
     private final HybridSearchService hybridSearchService;
     private final DeepSeekClient deepSeekClient;
     private final ObjectMapper objectMapper;
+    private final Map<String, Boolean> stopFlags = new ConcurrentHashMap<>();
 
     public ChatService(
             StringRedisTemplate stringRedisTemplate,
@@ -58,6 +60,7 @@ public class ChatService {
             WebSocketSession session
     ) {
         try {
+            stopFlags.remove(session.getId());
             String conversationId = getOrCreateConversationId(userId);
             List<Map<String, String>> history = getConversationHistory(conversationId);
             List<SearchResult> searchResults = hybridSearchService.search(new SearchRequest(message, DEFAULT_TOP_K), userId);
@@ -78,19 +81,38 @@ public class ChatService {
                     context,
                     history,
                     chunk -> {
+                        if (isStopped(session.getId())) {
+                            return;
+                        }
                         responseBuilder.append(chunk);
                         sendChunk(session, chunk);
                     },
                     () -> {
+                        if (isStopped(session.getId())) {
+                            stopFlags.remove(session.getId());
+                            return;
+                        }
                         updateConversationHistory(conversationId, message, responseBuilder.toString());
                         sendCompletion(session);
                     },
-                    error -> sendError(session)
+                    error -> {
+                        if (isStopped(session.getId())) {
+                            stopFlags.remove(session.getId());
+                            return;
+                        }
+                        sendError(session);
+                    }
             );
         } catch (Exception exception) {
             log.error("Handle chat message failed", exception);
             sendError(session);
         }
+    }
+
+    public void stopResponse(String userId, WebSocketSession session) {
+        stopFlags.put(session.getId(), true);
+        log.info("Stop chat response: userId={}, sessionId={}", userId, session.getId());
+        sendStop(session);
     }
 
     private String getOrCreateConversationId(String userId) {
@@ -197,6 +219,18 @@ public class ChatService {
         }
     }
 
+    private void sendStop(WebSocketSession session) {
+        try {
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
+                    "type", "stop",
+                    "status", "stopped",
+                    "message", "响应已停止"
+            ))));
+        } catch (Exception exception) {
+            log.error("Send stop failed: sessionId={}", session.getId(), exception);
+        }
+    }
+
     private void sendError(WebSocketSession session) {
         try {
             session.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
@@ -221,5 +255,9 @@ public class ChatService {
 
     private String buildConversationMessagesKey(String conversationId) {
         return "conversation:" + conversationId + ":messages";
+    }
+
+    private boolean isStopped(String sessionId) {
+        return Boolean.TRUE.equals(stopFlags.get(sessionId));
     }
 }

@@ -1,8 +1,10 @@
 package io.hwan.atlaskb.chat.handler;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.hwan.atlaskb.auth.service.JwtService;
 import io.hwan.atlaskb.chat.service.ChatService;
 import io.jsonwebtoken.Claims;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -23,10 +25,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private final ChatService chatService;
     private final JwtService jwtService;
+    private final ObjectMapper objectMapper;
 
     public ChatWebSocketHandler(ChatService chatService, JwtService jwtService) {
         this.chatService = chatService;
         this.jwtService = jwtService;
+        this.objectMapper = new ObjectMapper();
     }
 
     @Override
@@ -47,11 +51,31 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         SessionUser sessionUser = resolveSessionUser(session);
+        String payload = message.getPayload();
+        if (payload.trim().startsWith("{")) {
+            try {
+                Map<String, Object> jsonMessage = objectMapper.readValue(payload, Map.class);
+                String type = jsonMessage.get("type") instanceof String value ? value : null;
+                if ("stop".equals(type)) {
+                    chatService.stopResponse(sessionUser.userId(), session);
+                    return;
+                }
+                if ("message".equals(type)) {
+                    Object content = jsonMessage.get("content");
+                    if (content instanceof String contentText && StringUtils.hasText(contentText)) {
+                        payload = contentText;
+                    }
+                }
+            } catch (Exception exception) {
+                log.debug("Ignore invalid chat json payload: {}", payload, exception);
+            }
+        }
+
         chatService.handleMessage(
                 sessionUser.userId(),
                 sessionUser.username(),
                 sessionUser.role(),
-                message.getPayload(),
+                payload,
                 session
         );
     }

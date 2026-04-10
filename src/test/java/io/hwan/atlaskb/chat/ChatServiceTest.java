@@ -8,6 +8,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -176,5 +178,42 @@ class ChatServiceTest {
         verify(webSocketSession).sendMessage(outgoingCaptor.capture());
         assertTrue(outgoingCaptor.getValue().getPayload().contains("AI服务暂时不可用"));
         verify(listOperations, never()).rightPushAll(eq("conversation:conv-2:messages"), any(), any());
+    }
+
+    @Test
+    void stopResponseSkipsRemainingChunksCompletionAndHistoryPersistence() throws Exception {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOperations);
+        when(stringRedisTemplate.opsForList()).thenReturn(listOperations);
+        when(stringRedisTemplate.opsForHash()).thenReturn(hashOperations);
+        when(valueOperations.get("user:3:current_conversation")).thenReturn(null);
+        when(webSocketSession.getId()).thenReturn("session-3");
+        when(hybridSearchService.search(any(SearchRequest.class), eq("3"))).thenReturn(List.of());
+
+        ChatService chatService = new ChatService(
+                stringRedisTemplate,
+                hybridSearchService,
+                deepSeekClient,
+                objectMapper
+        );
+
+        doAnswer(invocation -> {
+            ((java.util.function.Consumer<String>) invocation.getArgument(3)).accept("第一段");
+            chatService.stopResponse("3", webSocketSession);
+            ((java.util.function.Consumer<String>) invocation.getArgument(3)).accept("第二段");
+            ((Runnable) invocation.getArgument(4)).run();
+            return null;
+        }).when(deepSeekClient).streamResponse(eq("停止测试"), any(), any(), any(), any(), any());
+
+        chatService.handleMessage("3", "tester", "USER", "停止测试", webSocketSession);
+
+        ArgumentCaptor<TextMessage> outgoingCaptor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(webSocketSession, org.mockito.Mockito.times(2)).sendMessage(outgoingCaptor.capture());
+        List<TextMessage> sentMessages = outgoingCaptor.getAllValues();
+        assertTrue(sentMessages.get(0).getPayload().contains("\"chunk\":\"第一段\""));
+        assertTrue(sentMessages.get(1).getPayload().contains("\"type\":\"stop\""));
+        assertTrue(sentMessages.get(1).getPayload().contains("响应已停止"));
+        verify(listOperations, never()).rightPushAll(any(), any(), any());
+        verify(listOperations, never()).trim(anyString(), anyLong(), anyLong());
     }
 }
