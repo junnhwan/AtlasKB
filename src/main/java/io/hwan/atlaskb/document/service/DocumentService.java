@@ -6,6 +6,7 @@ import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
+import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.service.IndexingService;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
@@ -22,6 +23,7 @@ public class DocumentService {
     private final DocumentVectorRepository documentVectorRepository;
     private final MinioClient minioClient;
     private final IndexingService indexingService;
+    private final OrgTagPermissionService orgTagPermissionService;
     private final String bucketName;
 
     public DocumentService(
@@ -30,6 +32,7 @@ public class DocumentService {
             DocumentVectorRepository documentVectorRepository,
             MinioClient minioClient,
             IndexingService indexingService,
+            OrgTagPermissionService orgTagPermissionService,
             @Value("${minio.bucket-name}") String bucketName
     ) {
         this.fileUploadRepository = fileUploadRepository;
@@ -37,11 +40,23 @@ public class DocumentService {
         this.documentVectorRepository = documentVectorRepository;
         this.minioClient = minioClient;
         this.indexingService = indexingService;
+        this.orgTagPermissionService = orgTagPermissionService;
         this.bucketName = bucketName;
     }
 
     public List<DocumentFileSummary> getUserUploadedFiles(String userId) {
         return fileUploadRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(this::toSummary)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<DocumentFileSummary> getAccessibleFiles(String userId) {
+        List<String> accessibleOrgTags = orgTagPermissionService.resolveAccessibleOrgTags(userId);
+        List<FileUpload> fileUploads = accessibleOrgTags.isEmpty()
+                ? fileUploadRepository.findByUserIdOrIsPublicTrueOrderByCreatedAtDesc(userId)
+                : fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc(userId, accessibleOrgTags);
+        return fileUploads.stream()
                 .map(this::toSummary)
                 .toList();
     }

@@ -111,4 +111,34 @@ class DocumentControllerTest {
 
         verify(documentService).deleteDocument("abc123", userId.toString(), "ADMIN");
     }
+
+    @Test
+    void getAccessibleFilesReturnsAccessibleDocumentSummaries() throws Exception {
+        when(documentService.getAccessibleFiles(userId.toString())).thenReturn(List.of(
+                new DocumentFileSummary(
+                        "shared123",
+                        "shared.pdf",
+                        2048L,
+                        2,
+                        "9",
+                        "default",
+                        false,
+                        "2026-04-10T13:00:00",
+                        "2026-04-10T13:05:00"
+                )
+        ));
+
+        mockMvc.perform(get("/api/v1/documents/accessible")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data[0].fileMd5").value("shared123"))
+                .andExpect(jsonPath("$.data[0].fileName").value("shared.pdf"))
+                .andExpect(jsonPath("$.data[0].userId").value("9"))
+                .andExpect(jsonPath("$.data[0].orgTag").value("default"))
+                .andExpect(jsonPath("$.data[0].public").value(false));
+
+        verify(documentService).getAccessibleFiles(userId.toString());
+    }
 }

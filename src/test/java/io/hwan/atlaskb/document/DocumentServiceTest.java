@@ -13,6 +13,7 @@ import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.document.service.DocumentService;
+import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.service.IndexingService;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
@@ -42,6 +43,9 @@ class DocumentServiceTest {
 
     @Mock
     private IndexingService indexingService;
+
+    @Mock
+    private OrgTagPermissionService orgTagPermissionService;
 
     @Test
     void getUserUploadedFilesReturnsMappedSummaries() {
@@ -74,6 +78,7 @@ class DocumentServiceTest {
                 documentVectorRepository,
                 minioClient,
                 indexingService,
+                orgTagPermissionService,
                 "atlas-kb-uploads"
         );
 
@@ -115,6 +120,7 @@ class DocumentServiceTest {
                 documentVectorRepository,
                 minioClient,
                 indexingService,
+                orgTagPermissionService,
                 "atlas-kb-uploads"
         );
 
@@ -142,6 +148,7 @@ class DocumentServiceTest {
                 documentVectorRepository,
                 minioClient,
                 indexingService,
+                orgTagPermissionService,
                 "atlas-kb-uploads"
         );
 
@@ -161,6 +168,7 @@ class DocumentServiceTest {
                 documentVectorRepository,
                 minioClient,
                 indexingService,
+                orgTagPermissionService,
                 "atlas-kb-uploads"
         );
 
@@ -171,5 +179,83 @@ class DocumentServiceTest {
 
         assertEquals(4042, exception.getCode());
         assertEquals("上传记录不存在", exception.getMessage());
+    }
+
+    @Test
+    void getAccessibleFilesReturnsMappedSummariesForOwnPublicAndOrgFiles() {
+        FileUpload ownFile = new FileUpload();
+        ownFile.setFileMd5("self123");
+        ownFile.setFileName("self.pdf");
+        ownFile.setTotalSize(1024L);
+        ownFile.setStatus(2);
+        ownFile.setUserId("1");
+        ownFile.setOrgTag("default");
+        ownFile.setPublic(false);
+        ReflectionTestUtils.setField(ownFile, "createdAt", LocalDateTime.of(2026, 4, 10, 15, 0, 0));
+
+        FileUpload sharedFile = new FileUpload();
+        sharedFile.setFileMd5("shared123");
+        sharedFile.setFileName("shared.pdf");
+        sharedFile.setTotalSize(2048L);
+        sharedFile.setStatus(2);
+        sharedFile.setUserId("9");
+        sharedFile.setOrgTag("sales");
+        sharedFile.setPublic(false);
+        ReflectionTestUtils.setField(sharedFile, "createdAt", LocalDateTime.of(2026, 4, 10, 14, 0, 0));
+
+        when(orgTagPermissionService.resolveAccessibleOrgTags("1")).thenReturn(List.of("default", "sales"));
+        when(fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc("1", List.of("default", "sales")))
+                .thenReturn(List.of(ownFile, sharedFile));
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        List<DocumentFileSummary> summaries = documentService.getAccessibleFiles("1");
+
+        assertEquals(2, summaries.size());
+        assertEquals("self123", summaries.get(0).fileMd5());
+        assertEquals("shared123", summaries.get(1).fileMd5());
+        assertEquals("9", summaries.get(1).userId());
+        assertEquals("sales", summaries.get(1).orgTag());
+    }
+
+    @Test
+    void getAccessibleFilesFallsBackToOwnAndPublicFilesWhenUserHasNoOrgTags() {
+        FileUpload publicFile = new FileUpload();
+        publicFile.setFileMd5("public123");
+        publicFile.setFileName("public.pdf");
+        publicFile.setTotalSize(512L);
+        publicFile.setStatus(2);
+        publicFile.setUserId("8");
+        publicFile.setOrgTag("public");
+        publicFile.setPublic(true);
+        ReflectionTestUtils.setField(publicFile, "createdAt", LocalDateTime.of(2026, 4, 10, 12, 0, 0));
+
+        when(orgTagPermissionService.resolveAccessibleOrgTags("1")).thenReturn(List.of());
+        when(fileUploadRepository.findByUserIdOrIsPublicTrueOrderByCreatedAtDesc("1"))
+                .thenReturn(List.of(publicFile));
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        List<DocumentFileSummary> summaries = documentService.getAccessibleFiles("1");
+
+        assertEquals(1, summaries.size());
+        assertEquals("public123", summaries.get(0).fileMd5());
+        assertEquals(true, summaries.get(0).isPublic());
     }
 }

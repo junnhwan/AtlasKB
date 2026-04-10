@@ -27,6 +27,11 @@ public class DocumentController {
         return ApiResponse.success(documentService.getUserUploadedFiles(resolveUserId(httpServletRequest)));
     }
 
+    @GetMapping("/accessible")
+    public ApiResponse<List<DocumentFileSummary>> getAccessibleFiles(HttpServletRequest httpServletRequest) {
+        return ApiResponse.success(documentService.getAccessibleFiles(resolveUserId(httpServletRequest)));
+    }
+
     @DeleteMapping("/{fileMd5}")
     public ApiResponse<Void> deleteDocument(@PathVariable String fileMd5, HttpServletRequest httpServletRequest) {
         documentService.deleteDocument(fileMd5, resolveUserId(httpServletRequest), resolveRole(httpServletRequest));
