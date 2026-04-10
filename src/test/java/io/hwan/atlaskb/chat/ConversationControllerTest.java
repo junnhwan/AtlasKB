@@ -145,4 +145,19 @@ class ConversationControllerTest {
 
         verify(conversationSessionService).selectConversation(userId.toString(), "conv-2");
     }
+
+    @Test
+    void createConversationSessionReturnsCreatedConversationId() throws Exception {
+        when(conversationSessionService.createConversation(userId.toString()))
+                .thenReturn(new ConversationSelectionResult("conv-3"));
+
+        mockMvc.perform(post("/api/v1/users/conversation/session")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.conversationId").value("conv-3"));
+
+        verify(conversationSessionService).createConversation(userId.toString());
+    }
 }

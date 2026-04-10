@@ -49,6 +49,13 @@ public class ConversationController {
         );
     }
 
+    @PostMapping("/session")
+    public ApiResponse<ConversationSelectionResult> createConversationSession(HttpServletRequest httpServletRequest) {
+        return ApiResponse.success(
+                conversationSessionService.createConversation(resolveUserId(httpServletRequest))
+        );
+    }
+
     @PostMapping("/session/select")
     public ApiResponse<ConversationSelectionResult> selectConversationSession(
             @RequestBody ConversationSelectionRequest request,
