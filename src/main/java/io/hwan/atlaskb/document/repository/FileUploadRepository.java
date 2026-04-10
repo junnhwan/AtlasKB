@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FileUploadRepository extends JpaRepository<FileUpload, Long> {
 
+    Optional<FileUpload> findByFileMd5(String fileMd5);
+
     Optional<FileUpload> findByFileMd5AndUserId(String fileMd5, String userId);
 
     List<FileUpload> findByFileMd5In(List<String> fileMd5List);

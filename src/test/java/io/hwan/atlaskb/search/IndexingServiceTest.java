@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import co.elastic.clients.elasticsearch.core.IndexRequest;
 import io.hwan.atlaskb.document.entity.DocumentVector;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
@@ -98,6 +99,21 @@ class IndexingServiceTest {
         verify(documentVectorRepository).findByFileMd5AndUserIdOrderByChunkIdAsc("empty-file", "9");
         verify(embeddingClient, never()).embed(any());
         verify(elasticsearchClient, never()).index(any(IndexRequest.class));
+    }
+
+    @Test
+    void deleteFileRemovesIndexedChunksFromElasticsearch() throws Exception {
+        IndexingService indexingService = new IndexingService(
+                documentVectorRepository,
+                embeddingClient,
+                elasticsearchClient,
+                "atlas_kb_knowledge_base",
+                "text-embedding-v4"
+        );
+
+        indexingService.deleteFile("abc123", "1");
+
+        verify(elasticsearchClient).deleteByQuery(any(DeleteByQueryRequest.class));
     }
 
     private DocumentVector createVector(

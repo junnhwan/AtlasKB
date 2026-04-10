@@ -1,6 +1,7 @@
 package io.hwan.atlaskb.search.service;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import co.elastic.clients.elasticsearch.core.IndexRequest;
 import io.hwan.atlaskb.document.entity.DocumentVector;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
@@ -51,6 +52,20 @@ public class IndexingService {
             DocumentVector chunk = chunks.get(index);
             EsDocument document = toEsDocument(chunk, vectors.get(index));
             indexDocument(document);
+        }
+    }
+
+    public void deleteFile(String fileMd5, String userId) {
+        try {
+            DeleteByQueryRequest request = DeleteByQueryRequest.of(builder -> builder
+                    .index(indexName)
+                    .query(query -> query.bool(bool -> bool
+                            .must(must -> must.term(term -> term.field("fileMd5").value(fileMd5)))
+                            .must(must -> must.term(term -> term.field("userId").value(userId)))
+                    )));
+            elasticsearchClient.deleteByQuery(request);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to delete indexed document chunks", exception);
         }
     }
 

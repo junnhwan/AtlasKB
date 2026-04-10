@@ -1,14 +1,24 @@
 package io.hwan.atlaskb.document;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
 import io.hwan.atlaskb.document.entity.FileUpload;
+import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
+import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.document.service.DocumentService;
+import io.hwan.atlaskb.search.service.IndexingService;
+import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -20,6 +30,18 @@ class DocumentServiceTest {
 
     @Mock
     private FileUploadRepository fileUploadRepository;
+
+    @Mock
+    private ChunkInfoRepository chunkInfoRepository;
+
+    @Mock
+    private DocumentVectorRepository documentVectorRepository;
+
+    @Mock
+    private MinioClient minioClient;
+
+    @Mock
+    private IndexingService indexingService;
 
     @Test
     void getUserUploadedFilesReturnsMappedSummaries() {
@@ -46,7 +68,14 @@ class DocumentServiceTest {
 
         when(fileUploadRepository.findByUserIdOrderByCreatedAtDesc("1")).thenReturn(List.of(first, second));
 
-        DocumentService documentService = new DocumentService(fileUploadRepository);
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                "atlas-kb-uploads"
+        );
 
         List<DocumentFileSummary> summaries = documentService.getUserUploadedFiles("1");
 
@@ -69,5 +98,78 @@ class DocumentServiceTest {
         assertEquals(false, summaries.get(1).isPublic());
         assertEquals("2026-04-09T10:00", summaries.get(1).createdAt());
         assertEquals(null, summaries.get(1).mergedAt());
+    }
+
+    @Test
+    void deleteDocumentRemovesStoredMetadataVectorsAndMergedObject() throws Exception {
+        FileUpload fileUpload = new FileUpload();
+        fileUpload.setFileMd5("abc123");
+        fileUpload.setFileName("manual.pdf");
+        fileUpload.setUserId("1");
+
+        when(fileUploadRepository.findByFileMd5AndUserId("abc123", "1")).thenReturn(Optional.of(fileUpload));
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                "atlas-kb-uploads"
+        );
+
+        documentService.deleteDocument("abc123", "1", "USER");
+
+        verify(indexingService).deleteFile("abc123", "1");
+        verify(minioClient).removeObject(any(RemoveObjectArgs.class));
+        verify(documentVectorRepository).deleteByFileMd5AndUserId("abc123", "1");
+        verify(chunkInfoRepository).deleteByFileMd5("abc123");
+        verify(fileUploadRepository).delete(fileUpload);
+    }
+
+    @Test
+    void deleteDocumentAllowsAdminToDeleteOtherUsersFile() {
+        FileUpload fileUpload = new FileUpload();
+        fileUpload.setFileMd5("abc123");
+        fileUpload.setFileName("manual.pdf");
+        fileUpload.setUserId("9");
+
+        when(fileUploadRepository.findByFileMd5("abc123")).thenReturn(Optional.of(fileUpload));
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                "atlas-kb-uploads"
+        );
+
+        documentService.deleteDocument("abc123", "1", "ADMIN");
+
+        verify(indexingService).deleteFile("abc123", "9");
+        verify(documentVectorRepository).deleteByFileMd5AndUserId("abc123", "9");
+    }
+
+    @Test
+    void deleteDocumentThrowsWhenUploadRecordDoesNotExist() {
+        when(fileUploadRepository.findByFileMd5AndUserId("missing", "1")).thenReturn(Optional.empty());
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                "atlas-kb-uploads"
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> documentService.deleteDocument("missing", "1", "USER")
+        );
+
+        assertEquals(4042, exception.getCode());
+        assertEquals("上传记录不存在", exception.getMessage());
     }
 }

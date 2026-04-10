@@ -2,6 +2,7 @@ package io.hwan.atlaskb.document;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -98,5 +99,16 @@ class DocumentControllerTest {
                 .andExpect(jsonPath("$.data[0].mergedAt").value("2026-04-10T12:05:00"));
 
         verify(documentService).getUserUploadedFiles(userId.toString());
+    }
+
+    @Test
+    void deleteDocumentRemovesCurrentUsersFile() throws Exception {
+        mockMvc.perform(delete("/api/v1/documents/abc123")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"));
+
+        verify(documentService).deleteDocument("abc123", userId.toString(), "ADMIN");
     }
 }
