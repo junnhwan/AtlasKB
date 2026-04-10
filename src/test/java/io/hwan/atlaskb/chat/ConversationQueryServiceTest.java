@@ -6,13 +6,17 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.hwan.atlaskb.chat.dto.ConversationMessage;
+import io.hwan.atlaskb.chat.dto.ConversationSessionSummary;
 import io.hwan.atlaskb.chat.service.ConversationQueryService;
 import io.hwan.atlaskb.common.exception.BusinessException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -34,6 +38,9 @@ class ConversationQueryServiceTest {
 
     @Mock
     private ListOperations<String, String> listOperations;
+
+    @Mock
+    private HashOperations<String, Object, Object> hashOperations;
 
     @Test
     void getConversationHistoryReturnsMessagesOfCurrentConversation() throws Exception {
@@ -72,5 +79,32 @@ class ConversationQueryServiceTest {
 
         assertEquals(4043, exception.getCode());
         assertEquals("会话不存在", exception.getMessage());
+    }
+
+    @Test
+    void getConversationSessionsReturnsConversationSummaries() {
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOperations);
+        when(stringRedisTemplate.opsForHash()).thenReturn(hashOperations);
+        when(setOperations.members("user:1:conversations")).thenReturn(Set.of("conv-1", "conv-2"));
+        when(hashOperations.entries("conversation:conv-1:meta")).thenReturn(Map.of(
+                "name", "会话 1",
+                "createdAt", "2026-04-10T12:00:00"
+        ));
+        when(hashOperations.entries("conversation:conv-2:meta")).thenReturn(Map.of(
+                "name", "会话 2",
+                "createdAt", "2026-04-10T12:10:00"
+        ));
+
+        ConversationQueryService conversationQueryService = new ConversationQueryService(stringRedisTemplate, objectMapper);
+
+        List<ConversationSessionSummary> sessions = conversationQueryService.getConversationSessions("1");
+
+        assertEquals(2, sessions.size());
+        assertEquals("conv-1", sessions.get(0).conversationId());
+        assertEquals("会话 1", sessions.get(0).name());
+        assertEquals("2026-04-10T12:00:00", sessions.get(0).createdAt());
+        assertEquals("conv-2", sessions.get(1).conversationId());
+        assertEquals("会话 2", sessions.get(1).name());
+        assertEquals("2026-04-10T12:10:00", sessions.get(1).createdAt());
     }
 }

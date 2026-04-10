@@ -2,9 +2,13 @@ package io.hwan.atlaskb.chat.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.hwan.atlaskb.chat.dto.ConversationMessage;
+import io.hwan.atlaskb.chat.dto.ConversationSessionSummary;
 import io.hwan.atlaskb.common.exception.BusinessException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -46,6 +50,25 @@ public class ConversationQueryService {
         return history;
     }
 
+    public List<ConversationSessionSummary> getConversationSessions(String userId) {
+        Set<String> sessionIds = stringRedisTemplate.opsForSet().members(buildConversationSetKey(userId));
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<ConversationSessionSummary> sessions = new ArrayList<>(sessionIds.size());
+        for (String conversationId : sessionIds) {
+            Map<Object, Object> meta = stringRedisTemplate.opsForHash().entries(buildConversationMetaKey(conversationId));
+            sessions.add(new ConversationSessionSummary(
+                    conversationId,
+                    String.valueOf(meta.getOrDefault("name", conversationId)),
+                    String.valueOf(meta.getOrDefault("createdAt", "未知"))
+            ));
+        }
+        sessions.sort(Comparator.comparing(ConversationSessionSummary::conversationId));
+        return sessions;
+    }
+
     private String resolveConversationId(String userId, String requestedConversationId) {
         String conversationSetKey = buildConversationSetKey(userId);
         if (StringUtils.hasText(requestedConversationId)) {
@@ -76,5 +99,9 @@ public class ConversationQueryService {
 
     private String buildConversationMessagesKey(String conversationId) {
         return "conversation:" + conversationId + ":messages";
+    }
+
+    private String buildConversationMetaKey(String conversationId) {
+        return "conversation:" + conversationId + ":meta";
     }
 }

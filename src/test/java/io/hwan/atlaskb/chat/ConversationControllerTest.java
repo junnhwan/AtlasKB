@@ -95,4 +95,26 @@ class ConversationControllerTest {
                 .andExpect(jsonPath("$.code").value(4010))
                 .andExpect(jsonPath("$.message").value("Unauthorized"));
     }
+
+    @Test
+    void getConversationSessionsReturnsConversationSummaries() throws Exception {
+        when(conversationQueryService.getConversationSessions(userId.toString())).thenReturn(List.of(
+                new io.hwan.atlaskb.chat.dto.ConversationSessionSummary("conv-1", "会话 1", "2026-04-10T12:00:00"),
+                new io.hwan.atlaskb.chat.dto.ConversationSessionSummary("conv-2", "会话 2", "2026-04-10T12:10:00")
+        ));
+
+        mockMvc.perform(get("/api/v1/users/conversation/sessions")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data[0].conversationId").value("conv-1"))
+                .andExpect(jsonPath("$.data[0].name").value("会话 1"))
+                .andExpect(jsonPath("$.data[0].createdAt").value("2026-04-10T12:00:00"))
+                .andExpect(jsonPath("$.data[1].conversationId").value("conv-2"))
+                .andExpect(jsonPath("$.data[1].name").value("会话 2"))
+                .andExpect(jsonPath("$.data[1].createdAt").value("2026-04-10T12:10:00"));
+
+        verify(conversationQueryService).getConversationSessions(userId.toString());
+    }
 }

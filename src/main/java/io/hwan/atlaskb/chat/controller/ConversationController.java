@@ -1,6 +1,7 @@
 package io.hwan.atlaskb.chat.controller;
 
 import io.hwan.atlaskb.chat.dto.ConversationMessage;
+import io.hwan.atlaskb.chat.dto.ConversationSessionSummary;
 import io.hwan.atlaskb.chat.service.ConversationQueryService;
 import io.hwan.atlaskb.common.api.ApiResponse;
 import io.hwan.atlaskb.common.exception.BusinessException;
@@ -26,13 +27,23 @@ public class ConversationController {
             @RequestParam(name = "conversation_id", required = false) String conversationId,
             HttpServletRequest httpServletRequest
     ) {
+        return ApiResponse.success(
+                conversationQueryService.getConversationHistory(resolveUserId(httpServletRequest), conversationId)
+        );
+    }
+
+    @GetMapping("/sessions")
+    public ApiResponse<List<ConversationSessionSummary>> getConversationSessions(HttpServletRequest httpServletRequest) {
+        return ApiResponse.success(
+                conversationQueryService.getConversationSessions(resolveUserId(httpServletRequest))
+        );
+    }
+
+    private String resolveUserId(HttpServletRequest httpServletRequest) {
         Object userId = httpServletRequest.getAttribute("userId");
         if (!(userId instanceof Long)) {
             throw new BusinessException(4011, "Unauthorized");
         }
-
-        return ApiResponse.success(
-                conversationQueryService.getConversationHistory(String.valueOf(userId), conversationId)
-        );
+        return String.valueOf(userId);
     }
 }
