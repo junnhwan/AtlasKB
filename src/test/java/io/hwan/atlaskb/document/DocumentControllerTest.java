@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.hwan.atlaskb.auth.service.JwtService;
+import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
 import io.hwan.atlaskb.document.service.DocumentService;
 import io.hwan.atlaskb.user.entity.User;
@@ -140,5 +141,48 @@ class DocumentControllerTest {
                 .andExpect(jsonPath("$.data[0].public").value(false));
 
         verify(documentService).getAccessibleFiles(userId.toString());
+    }
+
+    @Test
+    void downloadPublicFileWithoutAuthenticationReturnsDownloadInfo() throws Exception {
+        when(documentService.getDownloadInfo("public.pdf", null))
+                .thenReturn(new DocumentDownloadInfo(
+                        "public.pdf",
+                        "http://localhost:9000/download/public.pdf",
+                        4096L
+                ));
+
+        mockMvc.perform(get("/api/v1/documents/download")
+                        .param("fileName", "public.pdf"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.fileName").value("public.pdf"))
+                .andExpect(jsonPath("$.data.downloadUrl").value("http://localhost:9000/download/public.pdf"))
+                .andExpect(jsonPath("$.data.fileSize").value(4096));
+
+        verify(documentService).getDownloadInfo("public.pdf", null);
+    }
+
+    @Test
+    void downloadAccessibleFileWithTokenParamReturnsDownloadInfo() throws Exception {
+        when(documentService.getDownloadInfo("shared.pdf", userId.toString()))
+                .thenReturn(new DocumentDownloadInfo(
+                        "shared.pdf",
+                        "http://localhost:9000/download/shared.pdf",
+                        2048L
+                ));
+
+        mockMvc.perform(get("/api/v1/documents/download")
+                        .param("fileName", "shared.pdf")
+                        .param("token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.fileName").value("shared.pdf"))
+                .andExpect(jsonPath("$.data.downloadUrl").value("http://localhost:9000/download/shared.pdf"))
+                .andExpect(jsonPath("$.data.fileSize").value(2048));
+
+        verify(documentService).getDownloadInfo("shared.pdf", userId.toString());
     }
 }

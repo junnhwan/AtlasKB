@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.hwan.atlaskb.common.exception.BusinessException;
+import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
 import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
@@ -15,6 +16,7 @@ import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.document.service.DocumentService;
 import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.service.IndexingService;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
 import java.time.LocalDateTime;
@@ -257,5 +259,91 @@ class DocumentServiceTest {
         assertEquals(1, summaries.size());
         assertEquals("public123", summaries.get(0).fileMd5());
         assertEquals(true, summaries.get(0).isPublic());
+    }
+
+    @Test
+    void getDownloadInfoReturnsPublicFileForAnonymousUser() throws Exception {
+        FileUpload publicFile = new FileUpload();
+        publicFile.setFileMd5("public123");
+        publicFile.setFileName("public.pdf");
+        publicFile.setTotalSize(4096L);
+        publicFile.setPublic(true);
+
+        when(fileUploadRepository.findByFileNameAndIsPublicTrue("public.pdf")).thenReturn(Optional.of(publicFile));
+        when(minioClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .thenReturn("http://localhost:9000/download/public.pdf");
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        DocumentDownloadInfo downloadInfo = documentService.getDownloadInfo("public.pdf", null);
+
+        assertEquals("public.pdf", downloadInfo.fileName());
+        assertEquals("http://localhost:9000/download/public.pdf", downloadInfo.downloadUrl());
+        assertEquals(4096L, downloadInfo.fileSize());
+    }
+
+    @Test
+    void getDownloadInfoReturnsAccessibleFileForAuthenticatedUser() throws Exception {
+        FileUpload accessibleFile = new FileUpload();
+        accessibleFile.setFileMd5("shared123");
+        accessibleFile.setFileName("shared.pdf");
+        accessibleFile.setTotalSize(2048L);
+        accessibleFile.setUserId("9");
+        accessibleFile.setOrgTag("sales");
+        accessibleFile.setPublic(false);
+        ReflectionTestUtils.setField(accessibleFile, "createdAt", LocalDateTime.of(2026, 4, 10, 14, 0, 0));
+
+        when(orgTagPermissionService.resolveAccessibleOrgTags("1")).thenReturn(List.of("default", "sales"));
+        when(fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc("1", List.of("default", "sales")))
+                .thenReturn(List.of(accessibleFile));
+        when(minioClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .thenReturn("http://localhost:9000/download/shared.pdf");
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        DocumentDownloadInfo downloadInfo = documentService.getDownloadInfo("shared.pdf", "1");
+
+        assertEquals("shared.pdf", downloadInfo.fileName());
+        assertEquals("http://localhost:9000/download/shared.pdf", downloadInfo.downloadUrl());
+        assertEquals(2048L, downloadInfo.fileSize());
+    }
+
+    @Test
+    void getDownloadInfoThrowsWhenAnonymousUserRequestsNonPublicFile() {
+        when(fileUploadRepository.findByFileNameAndIsPublicTrue("private.pdf")).thenReturn(Optional.empty());
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> documentService.getDownloadInfo("private.pdf", null)
+        );
+
+        assertEquals(4042, exception.getCode());
+        assertEquals("文件不存在或需要登录访问", exception.getMessage());
     }
 }

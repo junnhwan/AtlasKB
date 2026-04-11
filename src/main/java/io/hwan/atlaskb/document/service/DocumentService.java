@@ -1,6 +1,7 @@
 package io.hwan.atlaskb.document.service;
 
 import io.hwan.atlaskb.common.exception.BusinessException;
+import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
 import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
@@ -8,8 +9,10 @@ import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.service.IndexingService;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
+import io.minio.http.Method;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -52,13 +55,19 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<DocumentFileSummary> getAccessibleFiles(String userId) {
-        List<String> accessibleOrgTags = orgTagPermissionService.resolveAccessibleOrgTags(userId);
-        List<FileUpload> fileUploads = accessibleOrgTags.isEmpty()
-                ? fileUploadRepository.findByUserIdOrIsPublicTrueOrderByCreatedAtDesc(userId)
-                : fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc(userId, accessibleOrgTags);
-        return fileUploads.stream()
+        return getAccessibleFileEntities(userId).stream()
                 .map(this::toSummary)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentDownloadInfo getDownloadInfo(String fileName, String userId) {
+        FileUpload fileUpload = resolveDownloadFile(fileName, userId);
+        return new DocumentDownloadInfo(
+                fileUpload.getFileName(),
+                buildPresignedDownloadUrl(fileUpload.getFileName()),
+                fileUpload.getTotalSize()
+        );
     }
 
     @Transactional
@@ -85,6 +94,24 @@ public class DocumentService {
                 fileUpload.getCreatedAt() == null ? null : fileUpload.getCreatedAt().toString(),
                 fileUpload.getMergedAt() == null ? null : fileUpload.getMergedAt().toString()
         );
+    }
+
+    private List<FileUpload> getAccessibleFileEntities(String userId) {
+        List<String> accessibleOrgTags = orgTagPermissionService.resolveAccessibleOrgTags(userId);
+        return accessibleOrgTags.isEmpty()
+                ? fileUploadRepository.findByUserIdOrIsPublicTrueOrderByCreatedAtDesc(userId)
+                : fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc(userId, accessibleOrgTags);
+    }
+
+    private FileUpload resolveDownloadFile(String fileName, String userId) {
+        if (userId == null) {
+            return fileUploadRepository.findByFileNameAndIsPublicTrue(fileName)
+                    .orElseThrow(() -> new BusinessException(4042, "文件不存在或需要登录访问"));
+        }
+        return getAccessibleFileEntities(userId).stream()
+                .filter(fileUpload -> fileName.equals(fileUpload.getFileName()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(4042, "文件不存在或无权限访问"));
     }
 
     private FileUpload resolveFileUpload(String fileMd5, String userId, String role) {
@@ -114,6 +141,21 @@ public class DocumentService {
             );
         } catch (Exception ignored) {
             // 忠实保留参考项目的 best-effort 清理策略，对象存储删除失败不阻断元数据删除。
+        }
+    }
+
+    private String buildPresignedDownloadUrl(String fileName) {
+        try {
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(bucketName)
+                            .object("merged/" + fileName)
+                            .expiry(3600)
+                            .build()
+            );
+        } catch (Exception exception) {
+            throw new IllegalStateException("无法生成下载链接", exception);
         }
     }
 }

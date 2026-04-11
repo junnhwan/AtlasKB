@@ -13,6 +13,8 @@ public interface FileUploadRepository extends JpaRepository<FileUpload, Long> {
 
     Optional<FileUpload> findByFileMd5AndUserId(String fileMd5, String userId);
 
+    Optional<FileUpload> findByFileNameAndIsPublicTrue(String fileName);
+
     List<FileUpload> findByFileMd5In(List<String> fileMd5List);
 
     @Query("""
