@@ -3,23 +3,31 @@ package io.hwan.atlaskb.document.service;
 import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
+import io.hwan.atlaskb.document.dto.DocumentPreviewInfo;
 import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
 import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.service.IndexingService;
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DocumentService {
+
+    private static final int PREVIEW_MAX_BYTES = 10 * 1024;
 
     private final FileUploadRepository fileUploadRepository;
     private final ChunkInfoRepository chunkInfoRepository;
@@ -62,10 +70,20 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public DocumentDownloadInfo getDownloadInfo(String fileName, String userId) {
-        FileUpload fileUpload = resolveDownloadFile(fileName, userId);
+        FileUpload fileUpload = resolveReadableFile(fileName, userId);
         return new DocumentDownloadInfo(
                 fileUpload.getFileName(),
                 buildPresignedDownloadUrl(fileUpload.getFileName()),
+                fileUpload.getTotalSize()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentPreviewInfo getPreviewInfo(String fileName, String userId) {
+        FileUpload fileUpload = resolveReadableFile(fileName, userId);
+        return new DocumentPreviewInfo(
+                fileUpload.getFileName(),
+                buildPreviewContent(fileUpload),
                 fileUpload.getTotalSize()
         );
     }
@@ -103,7 +121,7 @@ public class DocumentService {
                 : fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc(userId, accessibleOrgTags);
     }
 
-    private FileUpload resolveDownloadFile(String fileName, String userId) {
+    private FileUpload resolveReadableFile(String fileName, String userId) {
         if (userId == null) {
             return fileUploadRepository.findByFileNameAndIsPublicTrue(fileName)
                     .orElseThrow(() -> new BusinessException(4042, "文件不存在或需要登录访问"));
@@ -157,5 +175,77 @@ public class DocumentService {
         } catch (Exception exception) {
             throw new IllegalStateException("无法生成下载链接", exception);
         }
+    }
+
+    private String buildPreviewContent(FileUpload fileUpload) {
+        String extension = getFileExtension(fileUpload.getFileName()).toLowerCase(Locale.ROOT);
+        if (!isTextFile(extension)) {
+            return buildBinaryFileInfo(fileUpload, extension);
+        }
+
+        try (var inputStream = minioClient.getObject(
+                GetObjectArgs.builder()
+                        .bucket(bucketName)
+                        .object("merged/" + fileUpload.getFileName())
+                        .build());
+             var reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            StringBuilder content = new StringBuilder();
+            String line;
+            int bytesRead = 0;
+            while ((line = reader.readLine()) != null && bytesRead < PREVIEW_MAX_BYTES) {
+                content.append(line).append("\n");
+                bytesRead += line.getBytes(StandardCharsets.UTF_8).length + 1;
+            }
+            if (bytesRead >= PREVIEW_MAX_BYTES) {
+                content.append("\n... (内容已截断，仅显示前10KB)");
+            }
+            return content.toString();
+        } catch (Exception exception) {
+            throw new IllegalStateException("无法获取文件预览内容", exception);
+        }
+    }
+
+    private String buildBinaryFileInfo(FileUpload fileUpload, String extension) {
+        String normalizedExtension = extension.isEmpty() ? "UNKNOWN" : extension.toUpperCase(Locale.ROOT);
+        return String.format(
+                "文件名: %s%n文件大小: %s%n文件类型: %s%n上传时间: %s%n%n此文件类型不支持预览，请下载后查看。",
+                fileUpload.getFileName(),
+                formatFileSize(fileUpload.getTotalSize()),
+                normalizedExtension,
+                fileUpload.getCreatedAt()
+        );
+    }
+
+    private String getFileExtension(String fileName) {
+        int lastDotIndex = fileName.lastIndexOf('.');
+        if (lastDotIndex < 0 || lastDotIndex == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(lastDotIndex + 1);
+    }
+
+    private boolean isTextFile(String extension) {
+        return switch (extension) {
+            case "txt", "md", "doc", "docx", "pdf", "html", "htm", "xml", "json",
+                    "csv", "log", "java", "js", "ts", "py", "cpp", "c", "h", "css",
+                    "scss", "less", "sql", "yml", "yaml", "properties", "conf", "config" -> true;
+            default -> false;
+        };
+    }
+
+    private String formatFileSize(Long size) {
+        if (size == null) {
+            return "未知";
+        }
+        if (size < 1024) {
+            return size + " B";
+        }
+        if (size < 1024 * 1024) {
+            return String.format(Locale.ROOT, "%.1f KB", size / 1024.0);
+        }
+        if (size < 1024 * 1024 * 1024) {
+            return String.format(Locale.ROOT, "%.1f MB", size / (1024.0 * 1024.0));
+        }
+        return String.format(Locale.ROOT, "%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
 }

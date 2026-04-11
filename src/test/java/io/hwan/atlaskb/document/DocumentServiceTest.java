@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
+import io.hwan.atlaskb.document.dto.DocumentPreviewInfo;
 import io.hwan.atlaskb.document.entity.FileUpload;
 import io.hwan.atlaskb.document.repository.ChunkInfoRepository;
 import io.hwan.atlaskb.document.repository.DocumentVectorRepository;
@@ -16,12 +17,16 @@ import io.hwan.atlaskb.document.repository.FileUploadRepository;
 import io.hwan.atlaskb.document.service.DocumentService;
 import io.hwan.atlaskb.organization.service.OrgTagPermissionService;
 import io.hwan.atlaskb.search.service.IndexingService;
+import io.minio.GetObjectArgs;
+import io.minio.GetObjectResponse;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import okhttp3.Headers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -341,6 +346,97 @@ class DocumentServiceTest {
         BusinessException exception = assertThrows(
                 BusinessException.class,
                 () -> documentService.getDownloadInfo("private.pdf", null)
+        );
+
+        assertEquals(4042, exception.getCode());
+        assertEquals("文件不存在或需要登录访问", exception.getMessage());
+    }
+
+    @Test
+    void getPreviewInfoReturnsTextPreviewForAnonymousUser() throws Exception {
+        FileUpload publicFile = new FileUpload();
+        publicFile.setFileMd5("public123");
+        publicFile.setFileName("public.txt");
+        publicFile.setTotalSize(512L);
+        publicFile.setPublic(true);
+
+        when(fileUploadRepository.findByFileNameAndIsPublicTrue("public.txt")).thenReturn(Optional.of(publicFile));
+        when(minioClient.getObject(any(GetObjectArgs.class)))
+                .thenReturn(new GetObjectResponse(
+                        new Headers.Builder().build(),
+                        "atlas-kb-uploads",
+                        null,
+                        "merged/public.txt",
+                        new ByteArrayInputStream("AtlasKB preview".getBytes())
+                ));
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        DocumentPreviewInfo previewInfo = documentService.getPreviewInfo("public.txt", null);
+
+        assertEquals("public.txt", previewInfo.fileName());
+        assertEquals("AtlasKB preview\n", previewInfo.content());
+        assertEquals(512L, previewInfo.fileSize());
+    }
+
+    @Test
+    void getPreviewInfoReturnsFileInfoForNonTextFile() {
+        FileUpload imageFile = new FileUpload();
+        imageFile.setFileMd5("image123");
+        imageFile.setFileName("diagram.png");
+        imageFile.setTotalSize(2048L);
+        imageFile.setUserId("9");
+        imageFile.setOrgTag("sales");
+        imageFile.setPublic(false);
+        ReflectionTestUtils.setField(imageFile, "createdAt", LocalDateTime.of(2026, 4, 11, 9, 30, 0));
+
+        when(orgTagPermissionService.resolveAccessibleOrgTags("1")).thenReturn(List.of("default", "sales"));
+        when(fileUploadRepository.findAccessibleFilesOrderByCreatedAtDesc("1", List.of("default", "sales")))
+                .thenReturn(List.of(imageFile));
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        DocumentPreviewInfo previewInfo = documentService.getPreviewInfo("diagram.png", "1");
+
+        assertEquals("diagram.png", previewInfo.fileName());
+        assertEquals(2048L, previewInfo.fileSize());
+        assertEquals(true, previewInfo.content().contains("此文件类型不支持预览，请下载后查看。"));
+        assertEquals(true, previewInfo.content().contains("PNG"));
+    }
+
+    @Test
+    void getPreviewInfoThrowsWhenAnonymousUserRequestsNonPublicFile() {
+        when(fileUploadRepository.findByFileNameAndIsPublicTrue("private.txt")).thenReturn(Optional.empty());
+
+        DocumentService documentService = new DocumentService(
+                fileUploadRepository,
+                chunkInfoRepository,
+                documentVectorRepository,
+                minioClient,
+                indexingService,
+                orgTagPermissionService,
+                "atlas-kb-uploads"
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> documentService.getPreviewInfo("private.txt", null)
         );
 
         assertEquals(4042, exception.getCode());

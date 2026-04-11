@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.hwan.atlaskb.auth.service.JwtService;
 import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
+import io.hwan.atlaskb.document.dto.DocumentPreviewInfo;
 import io.hwan.atlaskb.document.service.DocumentService;
 import io.hwan.atlaskb.user.entity.User;
 import io.hwan.atlaskb.user.repository.UserRepository;
@@ -184,5 +185,48 @@ class DocumentControllerTest {
                 .andExpect(jsonPath("$.data.fileSize").value(2048));
 
         verify(documentService).getDownloadInfo("shared.pdf", userId.toString());
+    }
+
+    @Test
+    void previewPublicFileWithoutAuthenticationReturnsPreviewInfo() throws Exception {
+        when(documentService.getPreviewInfo("public.txt", null))
+                .thenReturn(new DocumentPreviewInfo(
+                        "public.txt",
+                        "AtlasKB preview content",
+                        512L
+                ));
+
+        mockMvc.perform(get("/api/v1/documents/preview")
+                        .param("fileName", "public.txt"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.fileName").value("public.txt"))
+                .andExpect(jsonPath("$.data.content").value("AtlasKB preview content"))
+                .andExpect(jsonPath("$.data.fileSize").value(512));
+
+        verify(documentService).getPreviewInfo("public.txt", null);
+    }
+
+    @Test
+    void previewAccessibleFileWithTokenParamReturnsPreviewInfo() throws Exception {
+        when(documentService.getPreviewInfo("shared.txt", userId.toString()))
+                .thenReturn(new DocumentPreviewInfo(
+                        "shared.txt",
+                        "shared preview",
+                        1024L
+                ));
+
+        mockMvc.perform(get("/api/v1/documents/preview")
+                        .param("fileName", "shared.txt")
+                        .param("token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("OK"))
+                .andExpect(jsonPath("$.data.fileName").value("shared.txt"))
+                .andExpect(jsonPath("$.data.content").value("shared preview"))
+                .andExpect(jsonPath("$.data.fileSize").value(1024));
+
+        verify(documentService).getPreviewInfo("shared.txt", userId.toString());
     }
 }

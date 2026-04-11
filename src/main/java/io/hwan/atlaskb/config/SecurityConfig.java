@@ -37,7 +37,8 @@ public class SecurityConfig {
                                 "/error",
                                 "/api/v1/auth/login",
                                 "/api/v1/chat/**",
-                                "/api/v1/documents/download"
+                                "/api/v1/documents/download",
+                                "/api/v1/documents/preview"
                         ).permitAll()
                         .requestMatchers("/api/v1/**").authenticated()
                         .anyRequest().permitAll()

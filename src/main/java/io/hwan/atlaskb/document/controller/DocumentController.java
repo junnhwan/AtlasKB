@@ -5,6 +5,7 @@ import io.hwan.atlaskb.auth.service.JwtService;
 import io.hwan.atlaskb.common.exception.BusinessException;
 import io.hwan.atlaskb.document.dto.DocumentDownloadInfo;
 import io.hwan.atlaskb.document.dto.DocumentFileSummary;
+import io.hwan.atlaskb.document.dto.DocumentPreviewInfo;
 import io.hwan.atlaskb.document.service.DocumentService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,6 +47,15 @@ public class DocumentController {
             HttpServletRequest httpServletRequest
     ) {
         return ApiResponse.success(documentService.getDownloadInfo(fileName, resolveOptionalUserId(httpServletRequest, token)));
+    }
+
+    @GetMapping("/preview")
+    public ApiResponse<DocumentPreviewInfo> previewFileByName(
+            @RequestParam("fileName") String fileName,
+            @RequestParam(name = "token", required = false) String token,
+            HttpServletRequest httpServletRequest
+    ) {
+        return ApiResponse.success(documentService.getPreviewInfo(fileName, resolveOptionalUserId(httpServletRequest, token)));
     }
 
     @DeleteMapping("/{fileMd5}")
